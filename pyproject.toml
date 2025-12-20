@@ -50,8 +50,8 @@ models = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/cot_analysis"
-Repository = "https://github.com/yourusername/cot_analysis"
+Homepage = "https://github.com/JonnoB/cot_analysis"
+Repository = "https://github.com/JonnoB/cot_analysis"
 
 [tool.setuptools]
 packages = ["cot_score", "models", "benchmarks"]
@@ -61,7 +61,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --cov=cot_score --cov=models --cov=benchmarks --cov-report=term-missing"
+addopts = "-v"
 
 [tool.black]
 line-length = 100

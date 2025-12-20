@@ -7,7 +7,11 @@ NCSE v2.0 Dataset of OCR-Processed 19th Century English Newspapers.
 
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+import re
+import logging
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 class NCSEDataset:
@@ -36,8 +40,9 @@ class NCSEDataset:
             csv_path = self.dataset_path / "ncse_testset_bboxes.csv"
             images_dir = self.dataset_path / "ncse_test_png_120"
         else:
-            raise ValueError(f"Unsupported split: {
-                             self.split}. Only 'test' is currently supported.")
+            raise ValueError(
+                f"Unsupported split: {self.split}. Only 'test' is currently supported."
+            )
 
         if not csv_path.exists():
             raise FileNotFoundError(f"Annotations file not found: {csv_path}")
@@ -89,7 +94,12 @@ class NCSEDataset:
         Create a mapping from CSV filenames to actual filenames in the directory.
 
         CSV format: {prefix}_{date}_page_{num}.png
+            Example: EWJ_1858-08-01_page_5.png
+
         Actual format: {prefix}_pageid_{id}_pagenum_{num}_{date}_page_1.png
+            Example: EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png
+
+        The mapping matches on three components: prefix, date, and page number.
 
         Args:
             csv_filenames: List of filenames from CSV
@@ -99,31 +109,44 @@ class NCSEDataset:
             Dictionary mapping CSV filenames to actual filenames
         """
         mapping = {}
+        unmatched = []
+
+        # Pattern to extract: PREFIX, DATE (YYYY-MM-DD), PAGE_NUM from CSV filename
+        # Handles formats like: EWJ_1858-08-01_page_5.png, TEC_1884-03-15_page_23.png, NS2_1843-04-01_page_4.png
+        # PREFIX can be letters and numbers (e.g., EWJ, TEC, NS2)
+        csv_pattern = re.compile(r'([A-Z0-9]+)_.*?(\d{4}-\d{2}-\d{2})_page_(\d+)\.png')
 
         for csv_name in csv_filenames:
-            # Parse CSV filename
-            # Examples: EWJ_1858-08-01_page_5.png, EWJ_55_1858-06-01_page_55.png
-            parts = csv_name.replace('.png', '').split('_')
+            match = csv_pattern.search(csv_name)
+            if not match:
+                logger.warning(f"Could not parse CSV filename: {csv_name}")
+                unmatched.append(csv_name)
+                continue
 
-            # Extract components
-            prefix = parts[0]
+            prefix, date, page_num = match.groups()
 
-            # Handle case where there's a number after prefix (e.g., EWJ_55_...)
-            if len(parts) >= 4 and parts[1].isdigit():
-                date = parts[2]
-                page_num = parts[4] if len(parts) > 4 else parts[3].replace('page', '')
-            else:
-                date = parts[1]
-                page_num = parts[3] if len(parts) > 3 else ''
-
-            # Find matching actual filename
+            # Find matching actual file
+            # Must match: prefix followed by underscore, pagenum_{num}_, and date
+            found = False
             for actual_name in actual_filenames:
-                # Check if prefix, date, and page number match
-                if (actual_name.startswith(prefix) and
-                    date in actual_name and
-                    f'pagenum_{page_num}_' in actual_name):
+                if (actual_name.startswith(f'{prefix}_') and
+                    f'pagenum_{page_num}_' in actual_name and
+                    date in actual_name):
                     mapping[csv_name] = actual_name
+                    found = True
                     break
+
+            if not found:
+                logger.warning(
+                    f"No matching file found for {csv_name} "
+                    f"(looking for: {prefix}_*_pagenum_{page_num}_*_{date}_*)"
+                )
+                unmatched.append(csv_name)
+
+        # Log summary
+        logger.info(f"Mapped {len(mapping)}/{len(csv_filenames)} CSV files to actual files")
+        if unmatched:
+            logger.warning(f"Failed to map {len(unmatched)} files: {unmatched[:5]}...")
 
         return mapping
 
@@ -147,8 +170,9 @@ class NCSEDataset:
             self.load()
 
         if idx < 0 or idx >= len(self.images):
-            raise IndexError(f"Index {idx} out of range for dataset of size {
-                             len(self.images)}")
+            raise IndexError(
+                f"Index {idx} out of range for dataset of size {len(self.images)}"
+            )
 
         image_path = self.images[idx]
         return {
@@ -171,7 +195,8 @@ class NCSEDataset:
             self.load()
 
         if idx < 0 or idx >= len(self.images):
-            raise IndexError(f"Index {idx} out of range for dataset of size {
-                             len(self.images)}")
+            raise IndexError(
+                f"Index {idx} out of range for dataset of size {len(self.images)}"
+            )
 
         return self.annotations_by_image[self.images[idx]]
