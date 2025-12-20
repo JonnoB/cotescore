@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +21,9 @@ def main():
 
     logger.info("NCSE v2 Dataset Download")
     logger.info("=" * 50)
-    logger.info("Dataset URL: https://rdr.ucl.ac.uk/articles/dataset/NCSE_v2_0_A_Dataset_of_OCR-Processed_19th_Century_English_Newspapers/28381610")
+    logger.info(
+        "Dataset URL: https://rdr.ucl.ac.uk/articles/dataset/NCSE_v2_0_A_Dataset_of_OCR-Processed_19th_Century_English_Newspapers/28381610"
+    )
     logger.info("")
     logger.info("Please download the dataset manually from the URL above and extract it to:")
     logger.info(f"  {args.output.absolute()}")

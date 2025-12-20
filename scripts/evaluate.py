@@ -17,20 +17,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from benchmarks.runner import BenchmarkRunner
 from cot_score.dataset import NCSEDataset
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(name)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate document layout analysis models")
-    parser.add_argument("--model", type=str, required=True, help="Name or path of the model to evaluate")
-    parser.add_argument("--dataset", type=Path, required=True, help="Path to NCSE dataset")
-    parser.add_argument("--output", type=Path, default=Path("results"), help="Output directory for results")
     parser.add_argument(
-        "--metrics",
-        nargs="+",
-        default=["iou", "coverage", "overlap"],
-        help="Metrics to compute"
+        "--model", type=str, required=True, help="Name or path of the model to evaluate"
+    )
+    parser.add_argument("--dataset", type=Path, required=True, help="Path to NCSE dataset")
+    parser.add_argument(
+        "--output", type=Path, default=Path("results"), help="Output directory for results"
+    )
+    parser.add_argument(
+        "--metrics", nargs="+", default=["iou", "coverage", "overlap"], help="Metrics to compute"
     )
 
     args = parser.parse_args()

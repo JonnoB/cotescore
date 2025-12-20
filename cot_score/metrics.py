@@ -37,12 +37,11 @@ def coverage(predicted_regions: List[Dict[str, Any]],
         gt_area = gt_box['width'] * gt_box['height']
         total_gt_area += gt_area
 
-        # Find maximum intersection with any predicted box
-        max_intersection = 0.0
-        for pred_box in predicted_regions:
-            intersection = _calculate_intersection_area(pred_box, gt_box)
-            max_intersection = max(max_intersection, intersection)
-
+        max_intersection = max(
+            (_calculate_intersection_area(pred_box, gt_box)
+             for pred_box in predicted_regions),
+            default=0.0
+        )
         covered_area += max_intersection
 
     return covered_area / total_gt_area if total_gt_area > 0 else 0.0
@@ -51,40 +50,57 @@ def coverage(predicted_regions: List[Dict[str, Any]],
 def overlap(predicted_regions: List[Dict[str, Any]],
             ground_truth_regions: List[Dict[str, Any]]) -> float:
     """
-    Calculate the overlap metric between predicted and ground truth regions.
+    Calculate the overlap metric between predicted regions.
 
-    Overlap measures the degree of intersection between predicted and ground truth regions.
-    It penalizes over-prediction by considering the ratio of intersection to predicted area.
+    Overlap measures the degree to which predictions overlap with each other,
+    indicating repeated/duplicated content. This results in repeated phrases
+    and sentences, meaning word order is incorrect and semantic coherence is lost.
+
+    The raw overlap finds the amount of overlapping area under the predictions,
+    sums the result, and normalizes by the area of the ground truth.
+
+    Formula: O_raw = Σ(M_S ⊙ (M_p - M_p,b)) / A_S
+    Normalized: O = O_raw / (n-1) if n > 1, else 0
 
     Args:
         predicted_regions: List of predicted bounding box regions
         ground_truth_regions: List of ground truth bounding box regions
 
     Returns:
-        Overlap score (0.0 to 1.0)
+        Overlap score (0.0 to 1.0), where 0 is no overlap and 1 is maximum overlap
     """
-    if not predicted_regions:
-        return 1.0 if not ground_truth_regions else 0.0
+    if len(predicted_regions) <= 1:
+        return 0.0
 
     if not ground_truth_regions:
         return 0.0
 
-    total_pred_area = 0.0
-    valid_pred_area = 0.0
+    total_gt_area = sum(gt['width'] * gt['height']
+                        for gt in ground_truth_regions)
+    if total_gt_area == 0:
+        return 0.0
 
-    for pred_box in predicted_regions:
-        pred_area = pred_box['width'] * pred_box['height']
-        total_pred_area += pred_area
+    overlap_area = 0.0
 
-        # Find maximum intersection with any ground truth box
-        max_intersection = 0.0
-        for gt_box in ground_truth_regions:
-            intersection = _calculate_intersection_area(pred_box, gt_box)
-            max_intersection = max(max_intersection, intersection)
+    # For each pair of predictions, find their overlap within ground truth
+    for i in range(len(predicted_regions)):
+        for j in range(i + 1, len(predicted_regions)):
+            inter_box = _get_intersection_box(
+                predicted_regions[i], predicted_regions[j])
+            if not inter_box:
+                continue
 
-        valid_pred_area += max_intersection
+            # Sum overlap of prediction intersection with each ground truth region
+            for gt_box in ground_truth_regions:
+                gt_overlap = _calculate_intersection_area(inter_box, gt_box)
+                overlap_area += gt_overlap
 
-    return valid_pred_area / total_pred_area if total_pred_area > 0 else 0.0
+    # Calculate raw overlap score (normalized by ground truth area)
+    O_raw = overlap_area / total_gt_area
+
+    # Normalize by maximum possible overlap (n-1) and clamp to [0, 1]
+    O = O_raw / (len(predicted_regions) - 1)
+    return min(1.0, max(0.0, O))
 
 
 def iou(box1: Dict[str, float], box2: Dict[str, float]) -> float:
@@ -141,6 +157,45 @@ def _calculate_intersection_area(box1: Dict[str, float], box2: Dict[str, float])
         return 0.0
 
 
+def _get_intersection_box(box1: Dict[str, float], box2: Dict[str, float]) -> Dict[str, float]:
+    """
+    Get the bounding box representing the intersection of two boxes.
+
+    Args:
+        box1: First bounding box with keys 'x', 'y', 'width', 'height'
+        box2: Second bounding box with keys 'x', 'y', 'width', 'height'
+
+    Returns:
+        Intersection bounding box, or None if no intersection
+    """
+    x1_min = box1['x']
+    y1_min = box1['y']
+    x1_max = box1['x'] + box1['width']
+    y1_max = box1['y'] + box1['height']
+
+    x2_min = box2['x']
+    y2_min = box2['y']
+    x2_max = box2['x'] + box2['width']
+    y2_max = box2['y'] + box2['height']
+
+    # Calculate intersection coordinates
+    inter_x_min = max(x1_min, x2_min)
+    inter_y_min = max(y1_min, y2_min)
+    inter_x_max = min(x1_max, x2_max)
+    inter_y_max = min(y1_max, y2_max)
+
+    # Return intersection box if valid
+    if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
+        return {
+            'x': inter_x_min,
+            'y': inter_y_min,
+            'width': inter_x_max - inter_x_min,
+            'height': inter_y_max - inter_y_min
+        }
+    else:
+        return None
+
+
 def mean_iou(predicted_regions: List[Dict[str, Any]],
              ground_truth_regions: List[Dict[str, Any]]) -> float:
     """
@@ -162,12 +217,10 @@ def mean_iou(predicted_regions: List[Dict[str, Any]],
     if not predicted_regions:
         return 0.0
 
-    total_iou = 0.0
-    for gt_box in ground_truth_regions:
-        max_iou = 0.0
-        for pred_box in predicted_regions:
-            box_iou = iou(pred_box, gt_box)
-            max_iou = max(max_iou, box_iou)
-        total_iou += max_iou
+    total_iou = sum(
+        max((iou(pred_box, gt_box)
+            for pred_box in predicted_regions), default=0.0)
+        for gt_box in ground_truth_regions
+    )
 
     return total_iou / len(ground_truth_regions)

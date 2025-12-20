@@ -36,56 +36,40 @@ class NCSEDataset:
         if self._loaded:
             return
 
-        if self.split == "test":
-            csv_path = self.dataset_path / "ncse_testset_bboxes.csv"
-            images_dir = self.dataset_path / "ncse_test_png_120"
-        else:
-            raise ValueError(
-                f"Unsupported split: {self.split}. Only 'test' is currently supported."
-            )
+        if self.split != "test":
+            raise ValueError("Only 'test' split is currently supported.")
+
+        csv_path = self.dataset_path / "ncse_testset_bboxes.csv"
+        images_dir = self.dataset_path / "ncse_test_png_120"
 
         if not csv_path.exists():
             raise FileNotFoundError(f"Annotations file not found: {csv_path}")
+
         if not images_dir.exists():
             raise FileNotFoundError(
                 f"Images directory not found: {images_dir}")
 
         df = pd.read_csv(csv_path)
 
-        # Create filename mapping from CSV names to actual files
         actual_files = {f.name: f for f in images_dir.glob("*.png")}
         filename_mapping = self._create_filename_mapping(
             df['filename'].unique(), list(actual_files.keys())
         )
 
-        # Group annotations by filename
         for csv_filename in df['filename'].unique():
-            # Find corresponding actual file
             actual_filename = filename_mapping.get(csv_filename)
-            if actual_filename:
-                image_path = images_dir / actual_filename
-                if image_path.exists():
-                    self.images.append(str(image_path))
+            if not actual_filename:
+                continue
 
-                    # Get all annotations for this image
-                    image_annotations = df[df['filename'] == csv_filename]
-                    annotations = []
+            image_path = images_dir / actual_filename
+            if not image_path.exists():
+                continue
 
-                    for _, row in image_annotations.iterrows():
-                        # Convert from (x1, y1, x2, y2) to (x, y, width, height) format
-                        x1, y1, x2, y2 = row['x1'], row['y1'], row['x2'], row['y2']
-                        annotation = {
-                            'x': float(x1),
-                            'y': float(y1),
-                            'width': float(x2 - x1),
-                            'height': float(y2 - y1),
-                            'class': row['class'],
-                            'confidence': row.get('confidence', 1.0),
-                            'page_id': row.get('page_id', ''),
-                        }
-                        annotations.append(annotation)
+            self.images.append(str(image_path))
 
-                    self.annotations_by_image[str(image_path)] = annotations
+            image_annotations = df[df['filename'] == csv_filename]
+            annotations = self._build_annotations(image_annotations)
+            self.annotations_by_image[str(image_path)] = annotations
 
         self._loaded = True
 
@@ -114,7 +98,8 @@ class NCSEDataset:
         # Pattern to extract: PREFIX, DATE (YYYY-MM-DD), PAGE_NUM from CSV filename
         # Handles formats like: EWJ_1858-08-01_page_5.png, TEC_1884-03-15_page_23.png, NS2_1843-04-01_page_4.png
         # PREFIX can be letters and numbers (e.g., EWJ, TEC, NS2)
-        csv_pattern = re.compile(r'([A-Z0-9]+)_.*?(\d{4}-\d{2}-\d{2})_page_(\d+)\.png')
+        csv_pattern = re.compile(
+            r'([A-Z0-9]+)_.*?(\d{4}-\d{2}-\d{2})_page_(\d+)\.png')
 
         for csv_name in csv_filenames:
             match = csv_pattern.search(csv_name)
@@ -125,30 +110,81 @@ class NCSEDataset:
 
             prefix, date, page_num = match.groups()
 
-            # Find matching actual file
-            # Must match: prefix followed by underscore, pagenum_{num}_, and date
-            found = False
-            for actual_name in actual_filenames:
-                if (actual_name.startswith(f'{prefix}_') and
-                    f'pagenum_{page_num}_' in actual_name and
-                    date in actual_name):
-                    mapping[csv_name] = actual_name
-                    found = True
-                    break
+            matching_file = self._find_matching_file(
+                actual_filenames, prefix, page_num, date
+            )
 
-            if not found:
+            if not matching_file:
                 logger.warning(
                     f"No matching file found for {csv_name} "
                     f"(looking for: {prefix}_*_pagenum_{page_num}_*_{date}_*)"
                 )
                 unmatched.append(csv_name)
+                continue
 
-        # Log summary
-        logger.info(f"Mapped {len(mapping)}/{len(csv_filenames)} CSV files to actual files")
+            mapping[csv_name] = matching_file
+
+        logger.info(
+            f"Mapped {len(mapping)}/{len(csv_filenames)}"
+            f"CSV files to actual files"
+        )
         if unmatched:
-            logger.warning(f"Failed to map {len(unmatched)} files: {unmatched[:5]}...")
+            logger.warning(f"Failed to map {len(unmatched)}")
 
         return mapping
+
+    @staticmethod
+    def _find_matching_file(
+        actual_filenames: list, prefix: str, page_num: str, date: str
+    ) -> Optional[str]:
+        """
+        Find the actual filename that matches the given CSV components.
+
+        Args:
+            actual_filenames: List of actual filenames in the directory
+            prefix: Publication prefix (e.g., 'EWJ', 'TEC')
+            page_num: Page number as string
+            date: Date in YYYY-MM-DD format
+
+        Returns:
+            Matching filename or None if not found
+        """
+        for actual_name in actual_filenames:
+            if (
+                actual_name.startswith(f'{prefix}_')
+                and f'pagenum_{page_num}_' in actual_name
+                and date in actual_name
+            ):
+                return actual_name
+        return None
+
+    @staticmethod
+    def _build_annotations(image_annotations: pd.DataFrame) -> List[Dict[str, Any]]:
+        """
+        Build annotation dictionaries from DataFrame rows.
+
+        Converts from (x1, y1, x2, y2) format to (x, y, width, height) format.
+
+        Args:
+            image_annotations: DataFrame rows for a single image
+
+        Returns:
+            List of annotation dictionaries
+        """
+        annotations = []
+        for _, row in image_annotations.iterrows():
+            x1, y1, x2, y2 = row['x1'], row['y1'], row['x2'], row['y2']
+            annotation = {
+                'x': float(x1),
+                'y': float(y1),
+                'width': float(x2 - x1),
+                'height': float(y2 - y1),
+                'class': row['class'],
+                'confidence': row.get('confidence', 1.0),
+                'page_id': row.get('page_id', ''),
+            }
+            annotations.append(annotation)
+        return annotations
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
@@ -171,7 +207,8 @@ class NCSEDataset:
 
         if idx < 0 or idx >= len(self.images):
             raise IndexError(
-                f"Index {idx} out of range for dataset of size {len(self.images)}"
+                f"Index {idx} out of range for dataset of size "
+                f"{len(self.images)}"
             )
 
         image_path = self.images[idx]
@@ -196,7 +233,8 @@ class NCSEDataset:
 
         if idx < 0 or idx >= len(self.images):
             raise IndexError(
-                f"Index {idx} out of range for dataset of size {len(self.images)}"
+                f"Index {idx} out of range for dataset of size "
+                f"{len(self.images)}"
             )
 
         return self.annotations_by_image[self.images[idx]]

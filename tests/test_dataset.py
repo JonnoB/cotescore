@@ -87,7 +87,7 @@ class TestNCSEDataset:
     def test_unsupported_split(self, dataset_path):
         """Test that unsupported split raises ValueError."""
         dataset = NCSEDataset(dataset_path, split="train")
-        with pytest.raises(ValueError, match="Unsupported split"):
+        with pytest.raises(ValueError, match="Only 'test' split is currently supported."):
             dataset.load()
 
     def test_multiple_annotations_per_image(self, dataset):
@@ -133,7 +133,8 @@ class TestFilenameMapping:
             "TEC_pageid_140098_pagenum_23_1884-03-15_page_1.png",
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 2
         assert mapping["EWJ_1858-08-01_page_5.png"] == "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png"
@@ -142,9 +143,11 @@ class TestFilenameMapping:
     def test_alphanumeric_prefix(self, dataset_instance):
         """Test mapping with alphanumeric prefix like NS2."""
         csv_filenames = ["NS2_1843-04-01_page_4.png"]
-        actual_filenames = ["NS2_pageid_163094_pagenum_4_1843-04-01_page_1.png"]
+        actual_filenames = [
+            "NS2_pageid_163094_pagenum_4_1843-04-01_page_1.png"]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 1
         assert mapping["NS2_1843-04-01_page_4.png"] == "NS2_pageid_163094_pagenum_4_1843-04-01_page_1.png"
@@ -162,7 +165,8 @@ class TestFilenameMapping:
             "TEC_pageid_146451_pagenum_8_1889-05-01_page_1.png",
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 3
         assert mapping["MRP_1834-06-02_page_1.png"] == "MRP_pageid_100001_pagenum_1_1834-06-02_page_1.png"
@@ -172,20 +176,24 @@ class TestFilenameMapping:
     def test_no_match_found(self, dataset_instance):
         """Test mapping when actual file doesn't exist."""
         csv_filenames = ["EWJ_1858-08-01_page_5.png"]
-        actual_filenames = ["TEC_pageid_140098_pagenum_23_1884-03-15_page_1.png"]  # Different file
+        actual_filenames = [
+            "TEC_pageid_140098_pagenum_23_1884-03-15_page_1.png"]  # Different file
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 0  # No match should be found
 
     def test_empty_inputs(self, dataset_instance):
         """Test mapping with empty inputs."""
         # Empty CSV filenames
-        mapping = dataset_instance._create_filename_mapping([], ["some_file.png"])
+        mapping = dataset_instance._create_filename_mapping(
+            [], ["some_file.png"])
         assert len(mapping) == 0
 
         # Empty actual filenames
-        mapping = dataset_instance._create_filename_mapping(["EWJ_1858-08-01_page_5.png"], [])
+        mapping = dataset_instance._create_filename_mapping(
+            ["EWJ_1858-08-01_page_5.png"], [])
         assert len(mapping) == 0
 
         # Both empty
@@ -200,7 +208,8 @@ class TestFilenameMapping:
             "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png",   # Correct
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 1
         assert mapping["EWJ_1858-08-01_page_5.png"] == "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png"
@@ -213,7 +222,8 @@ class TestFilenameMapping:
             "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png",  # Correct date
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 1
         assert mapping["EWJ_1858-08-01_page_5.png"] == "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png"
@@ -222,11 +232,14 @@ class TestFilenameMapping:
         """Test that page number matching is exact."""
         csv_filenames = ["EWJ_1858-08-01_page_5.png"]
         actual_filenames = [
-            "EWJ_pageid_91483_pagenum_15_1858-08-01_page_1.png",  # Wrong page (15 vs 5)
-            "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png",   # Correct page (5)
+            # Wrong page (15 vs 5)
+            "EWJ_pageid_91483_pagenum_15_1858-08-01_page_1.png",
+            # Correct page (5)
+            "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png",
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 1
         assert mapping["EWJ_1858-08-01_page_5.png"] == "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png"
@@ -242,7 +255,8 @@ class TestFilenameMapping:
             "EWJ_pageid_91484_pagenum_6_1858-08-01_page_1.png",
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 2
         assert mapping["EWJ_1858-08-01_page_5.png"] != mapping["EWJ_1858-08-01_page_6.png"]
@@ -258,7 +272,8 @@ class TestFilenameMapping:
             "EWJ_pageid_91483_pagenum_5_1858-08-01_page_1.png",
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         # None of these should match
         assert len(mapping) == 0
@@ -280,7 +295,8 @@ class TestFilenameMapping:
             "TTW_pageid_160759_pagenum_3_1868-01-25_page_1.png",
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         assert len(mapping) == 5
         # Each prefix should map correctly
@@ -306,7 +322,8 @@ class TestFilenameMapping:
         actual_filenames = [f.name for f in images_dir.glob("*.png")]
 
         dataset = NCSEDataset(dataset_path, split="test")
-        mapping = dataset._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         # Should map all CSV files to actual files
         assert len(mapping) == len(csv_filenames)
@@ -324,7 +341,8 @@ class TestFilenameMapping:
             "EWJ_pageid_91484_pagenum_5_1858-08-01_page_1.png",  # Duplicate match
         ]
 
-        mapping = dataset_instance._create_filename_mapping(csv_filenames, actual_filenames)
+        mapping = dataset_instance._create_filename_mapping(
+            csv_filenames, actual_filenames)
 
         # Should map to the first match
         assert len(mapping) == 1
