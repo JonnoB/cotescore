@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 class DocLayoutYOLO(LayoutModel):
     """DocLayout-YOLO model for document layout analysis."""
 
-    def __init__(self, model_name: str = "juliozhao/DocLayout-YOLO-DocStructBench",
+    DEFAULT_MODEL = "juliozhao/DocLayout-YOLO-DocStructBench"
+    DEFAULT_FILENAME = "doclayout_yolo_docstructbench_imgsz1024.pt"
+
+    def __init__(self, model_name: str = DEFAULT_MODEL,
                  conf_threshold: float = 0.2, imgsz: int = 1024, device: str = "cpu"):
         """
         Initialize the DocLayout-YOLO model.
@@ -43,7 +46,7 @@ class DocLayoutYOLO(LayoutModel):
 
         logger.info(f"Loading DocLayout-YOLO model: {self.model_name}")
 
-        if self.model_name == "juliozhao/DocLayout-YOLO-DocStructBench":
+        if self.model_name == self.DEFAULT_MODEL:
             self.model = self._load_docstructbench_model(YOLOv10)
         elif "/" in self.model_name:
             self.model = YOLOv10.from_pretrained(self.model_name)
@@ -58,15 +61,15 @@ class DocLayoutYOLO(LayoutModel):
             from huggingface_hub import hf_hub_download
             logger.info("Downloading model from Hugging Face...")
             filepath = hf_hub_download(
-                repo_id="juliozhao/DocLayout-YOLO-DocStructBench",
-                filename="doclayout_yolo_docstructbench_imgsz1024.pt"
+                repo_id=self.DEFAULT_MODEL,
+                filename=self.DEFAULT_FILENAME
             )
             logger.info(f"Model downloaded to: {filepath}")
             return YOLOv10(filepath)
         except Exception as e:
             logger.error(f"Error downloading from HuggingFace: {e}")
             logger.info("Attempting alternative loading method...")
-            return YOLOv10.from_pretrained(self.model_name)
+            return YOLOv10.from_pretrained(self.DEFAULT_MODEL)
 
     def predict(self, image_path: Path) -> List[Dict[str, Any]]:
         """
