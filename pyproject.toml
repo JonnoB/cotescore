@@ -7,7 +7,7 @@ name = "cot-score"
 version = "0.1.0"
 description = "Coverage and Overlap, Trespass and Excess (COTe) Testing for Document Layout Analysis"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.8.1"
 authors = [
     {name = "Jonathan Bourne", email = "jonathan.s.bourne@gmail.com"},
     {name = "Mwiza Simbeye", email = "mwiza.simbeye@boweryintelligence.com"}
@@ -30,6 +30,7 @@ dependencies = [
     "huggingface-hub>=0.16.0",
     "evaluate>=0.4.0",
     "tqdm>=4.65.0",
+    "marimo>=0.8.22",
 ]
 
 [project.optional-dependencies]
