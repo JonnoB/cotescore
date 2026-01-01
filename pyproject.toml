@@ -31,6 +31,10 @@ dependencies = [
     "evaluate>=0.4.0",
     "tqdm>=4.65.0",
     "marimo>=0.8.22",
+    "torch>=2.5.1",
+    "torchvision>=0.20.1",
+    "transformers>=4.46.3",
+    "requests>=2.32.4",
 ]
 
 [project.optional-dependencies]

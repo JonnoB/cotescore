@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""
+Visualize DocLayout-YOLO predictions on NCSE test images.
+"""
+
+import argparse
+import sys
+import json
+import logging
+from pathlib import Path
+
+import cv2
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from models.doclayout_yolo import DocLayoutYOLO
+from cot_score.dataset import NCSEDataset
+from cot_score.metrics import mean_iou, coverage, overlap
+
+COLORS = {
+    "ground_truth": (0, 255, 0),
+    "prediction": (255, 0, 0),
+    "overlap": (255, 165, 0),
+    "text": (255, 255, 255),
+    "background": (40, 40, 40),
+}
+
+def get_font(size=20):
+    try:
+        return ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size)
+    except OSError:
+        return ImageFont.load_default()
+
+def draw_boxes_pil(image_path, boxes, color, label_prefix="", thickness=3, font_size=20):
+    img = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    font = get_font(font_size)
+
+    for box in boxes:
+        x, y, w, h = box["x"], box["y"], box["width"], box["height"]
+        if w <= 0 or h <= 0:
+            continue
+
+        x1, y1 = int(x), int(y)
+        x2, y2 = int(x + w), int(y + h)
+
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=thickness)
+
+        label = f"{label_prefix}{box.get('class', 'unknown')}"
+        label_y = max(0, y1 - font_size - 5)
+        bbox = draw.textbbox((x1, label_y), label, font=font)
+        draw.rectangle(bbox, fill=color)
+        draw.text((x1, label_y), label, fill=(255, 255, 255), font=font)
+
+    return img
+
+def create_comparison_image(image_path, ground_truth, predictions, metrics, output_path):
+    gt_img = draw_boxes_pil(image_path, ground_truth, COLORS["ground_truth"], "GT: ", 2, 16)
+    pred_img = draw_boxes_pil(image_path, predictions, COLORS["prediction"], "P: ", 2, 16)
+
+    width, height = gt_img.size
+    padding = 200
+    comparison = Image.new("RGB", (width * 2 + 40, height + padding), COLORS["background"])
+
+    comparison.paste(gt_img, (10, padding))
+    comparison.paste(pred_img, (width + 30, padding))
+
+    draw = ImageDraw.Draw(comparison)
+    title_font = get_font(24)
+    metric_font = get_font(18)
+
+    filename = Path(image_path).name
+    draw.text((20, 20), f"Image: {filename}", fill=COLORS["text"], font=title_font)
+
+    draw.text((width // 2 - 100, padding - 35), f"Ground Truth ({len(ground_truth)})", fill=COLORS["ground_truth"], font=title_font)
+    draw.text((width + width // 2 - 100, padding - 35), f"Predictions ({len(predictions)})", fill=COLORS["prediction"], font=title_font)
+
+    y_offset = 60
+    draw.text((20, y_offset), "Metrics:", fill=COLORS["text"], font=metric_font)
+    y_offset += 30
+
+    descriptions = {
+        "mean_iou": "Intersection over Union",
+        "coverage": "GT area covered",
+        "overlap": "Prediction duplicates",
+    }
+
+    for metric, score in metrics.items():
+        if metric == "overlap":
+            color = COLORS["ground_truth"] if score < 0.2 else (COLORS["prediction"] if score > 0.5 else COLORS["text"])
+        else:
+            color = COLORS["ground_truth"] if score > 0.8 else (COLORS["prediction"] if score < 0.5 else COLORS["text"])
+
+        draw.text((20, y_offset), f"  {metric.upper()}: {score:.4f}", fill=color, font=metric_font)
+        y_offset += 25
+
+        desc = descriptions.get(metric, "")
+        if desc:
+            draw.text((40, y_offset), f"  ({desc})", fill=(180, 180, 180), font=metric_font)
+            y_offset += 20
+
+    comparison.save(output_path)
+    print(f"Saved: {output_path}")
+
+def create_overlay_image(image_path, ground_truth, predictions, output_path):
+    img = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    for box in ground_truth:
+        x, y, w, h = box["x"], box["y"], box["width"], box["height"]
+        if w > 0 and h > 0:
+            draw.rectangle([x, y, x + w, y + h], outline=COLORS["ground_truth"] + (200,), width=3)
+
+    for box in predictions:
+        x, y, w, h = box["x"], box["y"], box["width"], box["height"]
+        if w > 0 and h > 0:
+            draw.rectangle([x, y, x + w, y + h], outline=COLORS["prediction"] + (200,), width=3)
+
+    legend_height = 80
+    legend = Image.new("RGB", (img.width, legend_height), COLORS["background"])
+    legend_draw = ImageDraw.Draw(legend)
+    font = get_font(18)
+
+    legend_draw.rectangle([20, 20, 60, 40], outline=COLORS["ground_truth"], width=3)
+    legend_draw.text((70, 22), f"Ground Truth ({len(ground_truth)})", fill=COLORS["ground_truth"], font=font)
+
+    legend_draw.rectangle([300, 20, 340, 40], outline=COLORS["prediction"], width=3)
+    legend_draw.text((350, 22), f"Predictions ({len(predictions)})", fill=COLORS["prediction"], font=font)
+
+    result = Image.new("RGB", (img.width, img.height + legend_height))
+    result.paste(legend, (0, 0))
+    result.paste(img, (0, legend_height))
+
+    result.save(output_path)
+    print(f"Saved overlay: {output_path}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Visualize predictions")
+    parser.add_argument("--dataset", type=str, default="data/ncse", help="Dataset path")
+    parser.add_argument("--output", type=str, default="visualizations", help="Output directory")
+    parser.add_argument("--model", type=str, default="juliozhao/DocLayout-YOLO-DocStructBench", help="Model name")
+    parser.add_argument("--num-samples", type=int, default=5, help="Samples to visualize")
+    parser.add_argument("--indices", nargs="+", type=int, help="Specific indices")
+    parser.add_argument("--conf", type=float, default=0.2, help="Confidence threshold")
+    parser.add_argument("--device", type=str, default="cpu", help="Device")
+    parser.add_argument("--overlay", action="store_true", help="Create overlay")
+
+    args = parser.parse_args()
+    output_path = Path(args.output)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    print(f"Loading dataset: {args.dataset}")
+    dataset = NCSEDataset(Path(args.dataset), split="test")
+    dataset.load()
+
+    print("Initializing model...")
+    model = DocLayoutYOLO(model_name=args.model, conf_threshold=args.conf, imgsz=1024, device=args.device)
+    model.load()
+
+    if args.indices:
+        indices = [i for i in args.indices if 0 <= i < len(dataset)]
+    else:
+        step = max(1, len(dataset) // args.num_samples)
+        indices = list(range(0, len(dataset), step))[: args.num_samples]
+
+    print(f"Visualizing {len(indices)} images: {indices}\n")
+    results_summary = []
+
+    for idx in indices:
+        sample = dataset[idx]
+        image_path = Path(sample["image_path"])
+        ground_truth = sample["annotations"]
+        filename = sample["filename"]
+
+        print(f"Processing {filename}...")
+        predictions = model.predict(image_path)
+
+        metrics = {
+            "mean_iou": mean_iou(predictions, ground_truth),
+            "coverage": coverage(predictions, ground_truth),
+            "overlap": overlap(predictions, ground_truth),
+        }
+
+        print(f"  GT: {len(ground_truth)}, Preds: {len(predictions)}")
+        print(f"  Metrics: IoU={metrics['mean_iou']:.3f}, Cov={metrics['coverage']:.3f}, Overlap={metrics['overlap']:.3f}")
+
+        base_name = image_path.stem
+        comparison_path = output_path / f"{base_name}_comparison.png"
+        create_comparison_image(image_path, ground_truth, predictions, metrics, comparison_path)
+
+        if args.overlay:
+            overlay_path = output_path / f"{base_name}_overlay.png"
+            create_overlay_image(image_path, ground_truth, predictions, overlay_path)
+
+        results_summary.append({
+            "filename": filename,
+            "metrics": metrics,
+            "visualization": str(comparison_path),
+        })
+        print()
+
+    summary_path = output_path / "visualization_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(results_summary, f, indent=2)
+
+    print(f"Done. Output: {output_path}")
+
+if __name__ == "__main__":
+    main()

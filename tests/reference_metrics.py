@@ -43,12 +43,52 @@ def coverage(predicted_regions: List[Dict[str, Any]],
         gt_area = gt_box['width'] * gt_box['height']
         total_gt_area += gt_area
 
-        max_intersection = max(
-            (_calculate_intersection_area(pred_box, gt_box)
-             for pred_box in predicted_regions),
-            default=0.0
-        )
-        covered_area += max_intersection
+        # find intersections with this gt_box
+        intersections = []
+        for pred_box in predicted_regions:
+            inter = _get_intersection_box(pred_box, gt_box)
+            if inter:
+                intersections.append(inter)
+
+        if not intersections:
+            continue
+
+        # Calculate union area of intersections using grid method (Coordinate Compression)
+        # Collect all x and y coordinates
+        xs = set()
+        ys = set()
+        for box in intersections:
+            xs.add(box['x'])
+            xs.add(box['x'] + box['width'])
+            ys.add(box['y'])
+            ys.add(box['y'] + box['height'])
+
+        sorted_xs = sorted(list(xs))
+        sorted_ys = sorted(list(ys))
+
+        union_area = 0.0
+
+        # Iterate over grid cells
+        for i in range(len(sorted_xs) - 1):
+            for j in range(len(sorted_ys) - 1):
+                x1, x2 = sorted_xs[i], sorted_xs[i+1]
+                y1, y2 = sorted_ys[j], sorted_ys[j+1]
+
+                # Check if this cell is inside any intersection box
+                cell_mid_x = (x1 + x2) / 2
+                cell_mid_y = (y1 + y2) / 2
+
+                covered = False
+                for box in intersections:
+                    if (box['x'] <= cell_mid_x <= box['x'] + box['width'] and
+                        box['y'] <= cell_mid_y <= box['y'] + box['height']):
+                        covered = True
+                        break
+
+                if covered:
+                    union_area += (x2 - x1) * (y2 - y1)
+
+        covered_area += union_area
 
     return covered_area / total_gt_area if total_gt_area > 0 else 0.0
 

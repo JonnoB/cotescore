@@ -110,17 +110,51 @@ def coverage(
     pred_boxes = _boxes_to_array(predicted_regions)
     gt_boxes = _boxes_to_array(ground_truth_regions)
 
-    intersection_matrix = _calculate_intersection_areas_vectorized(
-        gt_boxes, pred_boxes
-    )
+    # Calculate coverage for each ground truth box
+    total_covered_area = 0.0
+    total_gt_area = 0.0
 
-    max_intersections = np.max(intersection_matrix, axis=1)
-    gt_areas = gt_boxes[:, 2] * gt_boxes[:, 3]
+    for i in range(gt_boxes.shape[0]):
+        gt_box = gt_boxes[i]
+        gt_area = gt_box[2] * gt_box[3]
+        total_gt_area += gt_area
 
-    covered_area = np.sum(max_intersections)
-    total_gt_area = np.sum(gt_areas)
+        if gt_area <= 0:
+            continue
 
-    return float(covered_area / total_gt_area) if total_gt_area > 0 else 0.0
+        # Find intersections between this GT box and all predictions
+        # Broadcast gt_box to shape of pred_boxes
+        gt_broadcast = np.tile(gt_box, (pred_boxes.shape[0], 1))
+
+        # Calculate intersection rectangles (x, y, w, h)
+        inter_x_min = np.maximum(gt_broadcast[:, 0], pred_boxes[:, 0])
+        inter_y_min = np.maximum(gt_broadcast[:, 1], pred_boxes[:, 1])
+        inter_x_max = np.minimum(gt_broadcast[:, 0] + gt_broadcast[:, 2],
+                               pred_boxes[:, 0] + pred_boxes[:, 2])
+        inter_y_max = np.minimum(gt_broadcast[:, 1] + gt_broadcast[:, 3],
+                               pred_boxes[:, 1] + pred_boxes[:, 3])
+
+        inter_w = np.maximum(0.0, inter_x_max - inter_x_min)
+        inter_h = np.maximum(0.0, inter_y_max - inter_y_min)
+
+        # Filter valid intersections
+        valid_mask = (inter_w > 0) & (inter_h > 0)
+        if not np.any(valid_mask):
+            continue
+
+        inter_boxes = np.stack([
+            inter_x_min[valid_mask],
+            inter_y_min[valid_mask],
+            inter_w[valid_mask],
+            inter_h[valid_mask]
+        ], axis=1)
+
+        # Calculate union area of these intersection rectangles
+        covered_area = _calculate_union_area(inter_boxes)
+        # Cap at GT area (floating point errors)
+        total_covered_area += min(covered_area, gt_area)
+
+    return float(total_covered_area / total_gt_area) if total_gt_area > 0 else 0.0
 
 
 def overlap(
@@ -406,8 +440,7 @@ def _validate_box(box: Any, param_name: str) -> None:
         value = box[key]
         if not isinstance(value, (int, float, np.number)):
             raise ValueError(
-                f"{param_name}['{key}'] must be numeric, got {
-                    type(value).__name__}"
+                f"{param_name}['{key}'] must be numeric, got {type(value).__name__}"
             )
         if not np.isfinite(value):
             raise ValueError(
@@ -556,6 +589,83 @@ def _iou_vectorized(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
     )
 
     return iou_matrix
+
+
+def _calculate_union_area(boxes: np.ndarray) -> float:
+    """
+    Calculate the area of the union of a set of rectangles.
+
+    Uses the Plane Sweep algorithm to compute the area of the union of N axis-aligned
+    rectangles in O(N^2) time (simplified implementation) or better.
+
+    Args:
+        boxes: Array of shape (N, 4) with [x, y, width, height].
+               Width and height must be positive.
+
+    Returns:
+        float: Total area of the union of the boxes.
+    """
+    if boxes.shape[0] == 0:
+        return 0.0
+
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = x1 + boxes[:, 2]
+    y2 = y1 + boxes[:, 3]
+
+    # Get all unique y coordinates sort them
+    y_coords = np.unique(np.concatenate([y1, y2]))
+    y_coords.sort()
+
+    total_area = 0.0
+
+    # Iterate through horizontal strips
+    for i in range(len(y_coords) - 1):
+        y_bottom = y_coords[i]
+        y_top = y_coords[i+1]
+        height = y_top - y_bottom
+
+        if height <= 0:
+            continue
+
+        # Find all boxes that cover this strip
+        # A box covers the strip if box_y1 <= y_bottom and box_y2 >= y_top
+        mask = (y1 <= y_bottom) & (y2 >= y_top)
+        active_boxes_x1 = x1[mask]
+        active_boxes_x2 = x2[mask]
+
+        if len(active_boxes_x1) == 0:
+            continue
+
+        # Calculate union of x intervals for this strip
+        # Sort by x1
+        sort_idx = np.argsort(active_boxes_x1)
+        active_x1 = active_boxes_x1[sort_idx]
+        active_x2 = active_boxes_x2[sort_idx]
+
+        union_width = 0.0
+        current_x1 = active_x1[0]
+        current_x2 = active_x2[0]
+
+        for j in range(1, len(active_x1)):
+            next_x1 = active_x1[j]
+            next_x2 = active_x2[j]
+
+            if next_x1 < current_x2:
+                # Overlap, extend current end if needed
+                current_x2 = max(current_x2, next_x2)
+            else:
+                # No overlap, add current segment and start new one
+                union_width += current_x2 - current_x1
+                current_x1 = next_x1
+                current_x2 = next_x2
+
+        # Add last segment
+        union_width += current_x2 - current_x1
+
+        total_area += union_width * height
+
+    return float(total_area)
 
 
 # =============================================================================

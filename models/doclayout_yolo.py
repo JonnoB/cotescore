@@ -89,7 +89,8 @@ class DocLayoutYOLO(LayoutModel):
             str(image_path),
             imgsz=self.imgsz,
             conf=self.conf_threshold,
-            device=self.device
+            device=self.device,
+            verbose=False
         )
 
         if not results or len(results) == 0:
