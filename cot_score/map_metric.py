@@ -93,6 +93,11 @@ class MAPMetric:
             # Map per-class results back to names
             if "map_per_class" in results:
                 per_class_scores = results["map_per_class"]
+
+                # Handle 0-d tensor (scalar) case when only 1 class exists
+                if per_class_scores.ndim == 0:
+                    per_class_scores = per_class_scores.unsqueeze(0)
+
                 # We iterate through the scores.
                 # TorchMetrics documentation says "map_per_class" returns tensor of shape (C).
                 # The assumption is it corresponds to the sorted unique label IDs found in data?
