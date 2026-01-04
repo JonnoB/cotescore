@@ -1,5 +1,5 @@
 """
-Document layout analysis metrics with optimized vectorized implementations.
+Document layout analysis metrics (Simplified Implementation).
 
 This module provides metrics for evaluating document layout analysis predictions:
 - coverage: Measures how well predictions cover ground truth regions
@@ -7,51 +7,17 @@ This module provides metrics for evaluating document layout analysis predictions
 - iou: Intersection over Union for two boxes
 - mean_iou: Average IoU across all ground truth boxes
 
-All implementations use vectorized numpy operations for optimal performance.
-Reference implementations available in tests/reference_metrics.py for verification.
-
-Example:
-    >>> from cot_score.metrics import coverage, overlap, mean_iou
-    >>>
-    >>> predictions = [
-    ...     {'x': 10, 'y': 20, 'width': 100, 'height': 50},
-    ...     {'x': 120, 'y': 25, 'width': 80, 'height': 60},
-    ... ]
-    >>> ground_truth = [
-    ...     {'x': 12, 'y': 22, 'width': 95, 'height': 48},
-    ...     {'x': 118, 'y': 23, 'width': 85, 'height': 62},
-    ... ]
-    >>>
-    >>> cov = coverage(predictions, ground_truth)  # How well predictions cover GT
-    >>> ovlp = overlap(predictions, ground_truth)   # How much predictions overlap
-    >>> miou = mean_iou(predictions, ground_truth)  # Average IoU score
-
-Performance:
-    Vectorized implementation provides 1.5x - 75x speedup over loop-based approach,
-    with greater gains for larger datasets.
-
-Notes:
-    - All bounding boxes use format: {'x': float, 'y': float, 'width': float, 'height': float}
-    - Coordinates represent top-left corner (x, y) with width and height
-    - All metrics return float values in range [0.0, 1.0]
-    - Empty input cases are handled according to metric semantics
+NOTE: This is the SIMPLIFIED REFERENCE IMPLEMENTATION for easier debugging.
+Performance will be slower than the vectorized numpy version.
 """
 
-from typing import List, Dict, Any, Union
-import numpy as np
+from typing import List, Dict, Any
 
 # Type alias for bounding box dictionary
-BBox = Dict[str, Union[int, float]]
+BBox = Dict[str, Any]
 
-
-# =============================================================================
-# Public API - Main metric functions
-# =============================================================================
-
-def coverage(
-    predicted_regions: List[BBox],
-    ground_truth_regions: List[BBox]
-) -> float:
+def coverage(predicted_regions: List[BBox],
+             ground_truth_regions: List[BBox]) -> float:
     """
     Calculate coverage metric between predicted and ground truth regions.
 
@@ -65,283 +31,142 @@ def coverage(
         ground_truth_regions: List of ground truth bounding boxes with same format.
 
     Returns:
-        Coverage score in range [0.0, 1.0], where:
-            - 1.0 = Perfect coverage (all GT area is covered)
-            - 0.0 = No coverage (no GT area is covered)
-
-    Raises:
-        ValueError: If boxes have invalid format or negative dimensions.
-        TypeError: If inputs are not lists of dictionaries.
-
-    Examples:
-        >>> # Perfect coverage
-        >>> pred = [{'x': 0, 'y': 0, 'width': 100, 'height': 100}]
-        >>> gt = [{'x': 0, 'y': 0, 'width': 100, 'height': 100}]
-        >>> coverage(pred, gt)
-        1.0
-
-        >>> # Partial coverage (50%)
-        >>> pred = [{'x': 0, 'y': 0, 'width': 50, 'height': 100}]
-        >>> gt = [{'x': 0, 'y': 0, 'width': 100, 'height': 100}]
-        >>> coverage(pred, gt)
-        0.5
-
-        >>> # No coverage
-        >>> pred = [{'x': 0, 'y': 0, 'width': 10, 'height': 10}]
-        >>> gt = [{'x': 100, 'y': 100, 'width': 10, 'height': 10}]
-        >>> coverage(pred, gt)
-        0.0
-
-    Notes:
-        - Empty ground truth with non-empty predictions returns 0.0
-        - Both empty returns 1.0 (perfect coverage of nothing)
-        - Empty predictions returns 0.0
-        - Predictions can overlap; best match for each GT is used
+        Coverage score in range [0.0, 1.0].
     """
-    _validate_boxes_list(predicted_regions, "predicted_regions")
-    _validate_boxes_list(ground_truth_regions, "ground_truth_regions")
-
     if not ground_truth_regions:
         return 1.0 if not predicted_regions else 0.0
 
     if not predicted_regions:
         return 0.0
 
-    pred_boxes = _boxes_to_array(predicted_regions)
-    gt_boxes = _boxes_to_array(ground_truth_regions)
-
-    # Calculate coverage for each ground truth box
-    total_covered_area = 0.0
     total_gt_area = 0.0
+    covered_area = 0.0
 
-    for i in range(gt_boxes.shape[0]):
-        gt_box = gt_boxes[i]
-        gt_area = gt_box[2] * gt_box[3]
+    for gt_box in ground_truth_regions:
+        gt_area = gt_box['width'] * gt_box['height']
         total_gt_area += gt_area
 
-        if gt_area <= 0:
+        # find intersections with this gt_box
+        intersections = []
+        for pred_box in predicted_regions:
+            inter = _get_intersection_box(pred_box, gt_box)
+            if inter:
+                intersections.append(inter)
+
+        if not intersections:
             continue
 
-        # Find intersections between this GT box and all predictions
-        # Broadcast gt_box to shape of pred_boxes
-        gt_broadcast = np.tile(gt_box, (pred_boxes.shape[0], 1))
+        # Calculate union area of intersections using grid method (Coordinate Compression)
+        # Collect all x and y coordinates
+        xs = set()
+        ys = set()
+        for box in intersections:
+            xs.add(box['x'])
+            xs.add(box['x'] + box['width'])
+            ys.add(box['y'])
+            ys.add(box['y'] + box['height'])
 
-        # Calculate intersection rectangles (x, y, w, h)
-        inter_x_min = np.maximum(gt_broadcast[:, 0], pred_boxes[:, 0])
-        inter_y_min = np.maximum(gt_broadcast[:, 1], pred_boxes[:, 1])
-        inter_x_max = np.minimum(gt_broadcast[:, 0] + gt_broadcast[:, 2],
-                               pred_boxes[:, 0] + pred_boxes[:, 2])
-        inter_y_max = np.minimum(gt_broadcast[:, 1] + gt_broadcast[:, 3],
-                               pred_boxes[:, 1] + pred_boxes[:, 3])
+        sorted_xs = sorted(list(xs))
+        sorted_ys = sorted(list(ys))
 
-        inter_w = np.maximum(0.0, inter_x_max - inter_x_min)
-        inter_h = np.maximum(0.0, inter_y_max - inter_y_min)
+        union_area = 0.0
 
-        # Filter valid intersections
-        valid_mask = (inter_w > 0) & (inter_h > 0)
-        if not np.any(valid_mask):
-            continue
+        # Iterate over grid cells
+        for i in range(len(sorted_xs) - 1):
+            for j in range(len(sorted_ys) - 1):
+                x1, x2 = sorted_xs[i], sorted_xs[i+1]
+                y1, y2 = sorted_ys[j], sorted_ys[j+1]
 
-        inter_boxes = np.stack([
-            inter_x_min[valid_mask],
-            inter_y_min[valid_mask],
-            inter_w[valid_mask],
-            inter_h[valid_mask]
-        ], axis=1)
+                # Check if this cell is inside any intersection box
+                cell_mid_x = (x1 + x2) / 2
+                cell_mid_y = (y1 + y2) / 2
 
-        # Calculate union area of these intersection rectangles
-        covered_area = _calculate_union_area(inter_boxes)
-        # Cap at GT area (floating point errors)
-        total_covered_area += min(covered_area, gt_area)
+                covered = False
+                for box in intersections:
+                    if (box['x'] <= cell_mid_x <= box['x'] + box['width'] and
+                        box['y'] <= cell_mid_y <= box['y'] + box['height']):
+                        covered = True
+                        break
 
-    return float(total_covered_area / total_gt_area) if total_gt_area > 0 else 0.0
+                if covered:
+                    union_area += (x2 - x1) * (y2 - y1)
+
+        covered_area += union_area
+
+    return covered_area / total_gt_area if total_gt_area > 0 else 0.0
 
 
-def overlap(
-    predicted_regions: List[BBox],
-    ground_truth_regions: List[BBox]
-) -> float:
+def overlap(predicted_regions: List[BBox],
+            ground_truth_regions: List[BBox]) -> float:
     """
     Calculate overlap metric between predicted regions.
 
     Overlap measures the degree to which predictions overlap with each other,
-    indicating repeated/duplicated content. High overlap suggests predictions
-    contain repeated phrases and sentences, meaning word order is incorrect
-    and semantic coherence is lost.
-
-    The metric computes overlap between all prediction pairs, intersects with
-    ground truth, and normalizes by GT area and number of predictions.
-
-    Formula:
-        O_raw = Σ(M_S ⊙ (M_p - M_p,b)) / A_S
-        O = O_raw / (n-1) if n > 1, else 0
+    indicating repeated/duplicated content.
 
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
 
     Returns:
-        Overlap score in range [0.0, 1.0], where:
-            - 0.0 = No overlap between predictions
-            - 1.0 = Maximum overlap (predictions completely duplicated)
-
-    Raises:
-        ValueError: If boxes have invalid format or negative dimensions.
-        TypeError: If inputs are not lists of dictionaries.
-
-    Examples:
-        >>> # No overlap (predictions don't intersect)
-        >>> pred = [
-        ...     {'x': 0, 'y': 0, 'width': 10, 'height': 10},
-        ...     {'x': 20, 'y': 20, 'width': 10, 'height': 10}
-        ... ]
-        >>> gt = [{'x': 0, 'y': 0, 'width': 100, 'height': 100}]
-        >>> overlap(pred, gt)
-        0.0
-
-        >>> # Complete overlap (predictions identical)
-        >>> pred = [
-        ...     {'x': 0, 'y': 0, 'width': 100, 'height': 100},
-        ...     {'x': 0, 'y': 0, 'width': 100, 'height': 100}
-        ... ]
-        >>> gt = [{'x': 0, 'y': 0, 'width': 100, 'height': 100}]
-        >>> overlap(pred, gt)
-        1.0
-
-    Notes:
-        - Single prediction returns 0.0 (can't overlap with itself)
-        - Empty predictions returns 0.0
-        - Empty ground truth returns 0.0
-        - Overlap is normalized by (n-1) where n is number of predictions
+        Overlap score in range [0.0, 1.0].
     """
-    _validate_boxes_list(predicted_regions, "predicted_regions")
-    _validate_boxes_list(ground_truth_regions, "ground_truth_regions")
-
     if len(predicted_regions) <= 1:
         return 0.0
 
     if not ground_truth_regions:
         return 0.0
 
-    pred_boxes = _boxes_to_array(predicted_regions)
-    gt_boxes = _boxes_to_array(ground_truth_regions)
-
-    gt_areas = gt_boxes[:, 2] * gt_boxes[:, 3]
-    total_gt_area = np.sum(gt_areas)
-
+    total_gt_area = sum(gt['width'] * gt['height']
+                        for gt in ground_truth_regions)
     if total_gt_area == 0:
         return 0.0
 
-    pred_intersections = _calculate_intersection_areas_vectorized(
-        pred_boxes, pred_boxes
-    )
-
-    np.fill_diagonal(pred_intersections, 0)
-
-    n_pred = pred_boxes.shape[0]
-    triu_indices = np.triu_indices(n_pred, k=1)
-
-    pred_coords = np.stack([
-        pred_boxes[:, 0],
-        pred_boxes[:, 1],
-        pred_boxes[:, 0] + pred_boxes[:, 2],
-        pred_boxes[:, 1] + pred_boxes[:, 3],
-    ], axis=1)
-
     overlap_area = 0.0
 
-    for i, j in zip(*triu_indices):
-        if pred_intersections[i, j] == 0:
-            continue
+    # For each pair of predictions, find their overlap within ground truth
+    for i in range(len(predicted_regions)):
+        for j in range(i + 1, len(predicted_regions)):
+            inter_box = _get_intersection_box(
+                predicted_regions[i], predicted_regions[j])
+            if not inter_box:
+                continue
 
-        inter_x_min = max(pred_coords[i, 0], pred_coords[j, 0])
-        inter_y_min = max(pred_coords[i, 1], pred_coords[j, 1])
-        inter_x_max = min(pred_coords[i, 2], pred_coords[j, 2])
-        inter_y_max = min(pred_coords[i, 3], pred_coords[j, 3])
+            # Sum overlap of prediction intersection with each ground truth region
+            for gt_box in ground_truth_regions:
+                gt_overlap = _calculate_intersection_area(inter_box, gt_box)
+                overlap_area += gt_overlap
 
-        if inter_x_max <= inter_x_min or inter_y_max <= inter_y_min:
-            continue
-
-        inter_box = np.array([
-            [inter_x_min, inter_y_min,
-             inter_x_max - inter_x_min, inter_y_max - inter_y_min]
-        ], dtype=np.float32)
-
-        inter_with_gt = _calculate_intersection_areas_vectorized(
-            inter_box, gt_boxes
-        )
-        overlap_area += np.sum(inter_with_gt)
-
+    # Calculate raw overlap score (normalized by ground truth area)
     O_raw = overlap_area / total_gt_area
-    O = O_raw / (len(predicted_regions) - 1)
 
-    return float(min(1.0, max(0.0, O)))
+    # Normalize by maximum possible overlap (n-1) and clamp to [0, 1]
+    O = O_raw / (len(predicted_regions) - 1)
+    return min(1.0, max(0.0, O))
 
 
 def iou(box1: BBox, box2: BBox) -> float:
     """
     Calculate Intersection over Union (IoU) between two bounding boxes.
 
-    IoU is a standard metric for measuring overlap between two boxes.
-    It is the ratio of intersection area to union area.
-
     Args:
         box1: First bounding box dict with keys 'x', 'y', 'width', 'height'.
         box2: Second bounding box dict with keys 'x', 'y', 'width', 'height'.
 
     Returns:
-        IoU score in range [0.0, 1.0], where:
-            - 1.0 = Perfect match (boxes identical)
-            - 0.0 = No overlap (boxes don't intersect)
-
-    Raises:
-        ValueError: If boxes have invalid format or negative dimensions.
-        TypeError: If boxes are not dictionaries.
-
-    Examples:
-        >>> # Perfect match
-        >>> box1 = {'x': 0, 'y': 0, 'width': 100, 'height': 100}
-        >>> box2 = {'x': 0, 'y': 0, 'width': 100, 'height': 100}
-        >>> iou(box1, box2)
-        1.0
-
-        >>> # Partial overlap
-        >>> box1 = {'x': 0, 'y': 0, 'width': 20, 'height': 20}
-        >>> box2 = {'x': 10, 'y': 10, 'width': 20, 'height': 20}
-        >>> iou(box1, box2)
-        0.14285714285714285  # 100/700
-
-        >>> # No overlap
-        >>> box1 = {'x': 0, 'y': 0, 'width': 10, 'height': 10}
-        >>> box2 = {'x': 20, 'y': 20, 'width': 10, 'height': 10}
-        >>> iou(box1, box2)
-        0.0
-
-    Notes:
-        - Uses vectorized implementation internally
-        - Handles edge touching (returns 0.0)
-        - Works with floating point coordinates
+        IoU score in range [0.0, 1.0].
     """
-    _validate_box(box1, "box1")
-    _validate_box(box2, "box2")
+    intersection = _calculate_intersection_area(box1, box2)
 
-    boxes1 = np.array(
-        [[box1['x'], box1['y'], box1['width'], box1['height']]],
-        dtype=np.float32
-    )
-    boxes2 = np.array(
-        [[box2['x'], box2['y'], box2['width'], box2['height']]],
-        dtype=np.float32
-    )
+    area1 = box1['width'] * box1['height']
+    area2 = box2['width'] * box2['height']
+    union = area1 + area2 - intersection
 
-    iou_matrix = _iou_vectorized(boxes1, boxes2)
-    return float(iou_matrix[0, 0])
+    return intersection / union if union > 0 else 0.0
 
 
-def mean_iou(
-    predicted_regions: List[BBox],
-    ground_truth_regions: List[BBox]
-) -> float:
+def mean_iou(predicted_regions: List[BBox],
+             ground_truth_regions: List[BBox]) -> float:
     """
     Calculate mean Intersection over Union (IoU) across ground truth boxes.
 
@@ -353,324 +178,80 @@ def mean_iou(
         ground_truth_regions: List of ground truth bounding boxes.
 
     Returns:
-        Mean IoU score in range [0.0, 1.0], where:
-            - 1.0 = All GT boxes perfectly matched
-            - 0.0 = No GT boxes matched
-
-    Raises:
-        ValueError: If boxes have invalid format or negative dimensions.
-        TypeError: If inputs are not lists of dictionaries.
-
-    Examples:
-        >>> # Perfect matches
-        >>> pred = [
-        ...     {'x': 0, 'y': 0, 'width': 100, 'height': 100},
-        ...     {'x': 200, 'y': 200, 'width': 50, 'height': 50}
-        ... ]
-        >>> gt = [
-        ...     {'x': 0, 'y': 0, 'width': 100, 'height': 100},
-        ...     {'x': 200, 'y': 200, 'width': 50, 'height': 50}
-        ... ]
-        >>> mean_iou(pred, gt)
-        1.0
-
-        >>> # Partial matches
-        >>> pred = [{'x': 0, 'y': 0, 'width': 100, 'height': 100}]
-        >>> gt = [
-        ...     {'x': 0, 'y': 0, 'width': 100, 'height': 100},  # Perfect: 1.0
-        ...     {'x': 200, 'y': 200, 'width': 50, 'height': 50}  # No match: 0.0
-        ... ]
-        >>> mean_iou(pred, gt)
-        0.5
-
-    Notes:
-        - Empty ground truth with non-empty predictions returns 0.0
-        - Both empty returns 1.0
-        - Empty predictions returns 0.0
-        - Each GT matched to best prediction (greedy matching)
+        Mean IoU score in range [0.0, 1.0].
     """
-    _validate_boxes_list(predicted_regions, "predicted_regions")
-    _validate_boxes_list(ground_truth_regions, "ground_truth_regions")
-
     if not ground_truth_regions:
         return 1.0 if not predicted_regions else 0.0
 
     if not predicted_regions:
         return 0.0
 
-    pred_boxes = _boxes_to_array(predicted_regions)
-    gt_boxes = _boxes_to_array(ground_truth_regions)
+    total_iou = sum(
+        max((iou(pred_box, gt_box)
+            for pred_box in predicted_regions), default=0.0)
+        for gt_box in ground_truth_regions
+    )
 
-    iou_matrix = _iou_vectorized(gt_boxes, pred_boxes)
-    max_ious = np.max(iou_matrix, axis=1)
-
-    return float(np.mean(max_ious))
+    return total_iou / len(ground_truth_regions)
 
 
 # =============================================================================
-# Internal helper functions (private API)
+# Internal helper functions
 # =============================================================================
 
-def _validate_box(box: Any, param_name: str) -> None:
-    """
-    Validate a single bounding box.
+def _calculate_intersection_area(box1: BBox, box2: BBox) -> float:
+    """Calculate the intersection area between two bounding boxes."""
+    x1_min = box1['x']
+    y1_min = box1['y']
+    x1_max = box1['x'] + box1['width']
+    y1_max = box1['y'] + box1['height']
 
-    Args:
-        box: Box to validate.
-        param_name: Parameter name for error messages.
+    x2_min = box2['x']
+    y2_min = box2['y']
+    x2_max = box2['x'] + box2['width']
+    y2_max = box2['y'] + box2['height']
 
-    Raises:
-        TypeError: If box is not a dictionary.
-        ValueError: If box is missing required keys or has invalid values.
-    """
-    if not isinstance(box, dict):
-        raise TypeError(
-            f"{param_name} must be a dictionary, got {type(box).__name__}"
-        )
+    # Calculate intersection coordinates
+    inter_x_min = max(x1_min, x2_min)
+    inter_y_min = max(y1_min, y2_min)
+    inter_x_max = min(x1_max, x2_max)
+    inter_y_max = min(y1_max, y2_max)
 
-    required_keys = {'x', 'y', 'width', 'height'}
-    missing_keys = required_keys - set(box.keys())
-
-    if missing_keys:
-        raise ValueError(
-            f"{param_name} missing required keys: {missing_keys}"
-        )
-
-    for key in required_keys:
-        value = box[key]
-        if not isinstance(value, (int, float, np.number)):
-            raise ValueError(
-                f"{param_name}['{key}'] must be numeric, got {type(value).__name__}"
-            )
-        if not np.isfinite(value):
-            raise ValueError(
-                f"{param_name}['{key}'] must be finite, got {value}"
-            )
-        if key in ('width', 'height') and value < 0:
-            raise ValueError(
-                f"{param_name}['{key}'] must be non-negative, got {value}"
-            )
-
-
-def _validate_boxes_list(boxes: Any, param_name: str) -> None:
-    """
-    Validate a list of bounding boxes.
-
-    Args:
-        boxes: List of boxes to validate.
-        param_name: Parameter name for error messages.
-
-    Raises:
-        TypeError: If boxes is not a list.
-        ValueError: If any box is invalid.
-    """
-    if not isinstance(boxes, list):
-        raise TypeError(
-            f"{param_name} must be a list, got {type(boxes).__name__}"
-        )
-
-    for i, box in enumerate(boxes):
-        try:
-            _validate_box(box, f"{param_name}[{i}]")
-        except (TypeError, ValueError) as e:
-            raise type(e)(f"{param_name}[{i}]: {e}") from e
-
-
-def _boxes_to_array(boxes: List[BBox]) -> np.ndarray:
-    """
-    Convert list of box dictionaries to numpy array.
-
-    Args:
-        boxes: List of boxes with keys 'x', 'y', 'width', 'height'.
-
-    Returns:
-        Array of shape (N, 4) with columns [x, y, width, height].
-        Empty array of shape (0, 4) if boxes is empty.
-    """
-    if not boxes:
-        return np.empty((0, 4), dtype=np.float32)
-
-    return np.array([
-        [box['x'], box['y'], box['width'], box['height']]
-        for box in boxes
-    ], dtype=np.float32)
-
-
-def _calculate_intersection_areas_vectorized(
-    boxes1: np.ndarray,
-    boxes2: np.ndarray
-) -> np.ndarray:
-    """
-    Calculate intersection areas between all pairs of boxes from two sets.
-
-    Uses numpy broadcasting to compute all pairwise intersections efficiently.
-
-    Args:
-        boxes1: Array of shape (N, 4) with [x, y, width, height].
-        boxes2: Array of shape (M, 4) with [x, y, width, height].
-
-    Returns:
-        Array of shape (N, M) with intersection areas.
-        Entry [i, j] is intersection area between boxes1[i] and boxes2[j].
-    """
-    if boxes1.shape[0] == 0 or boxes2.shape[0] == 0:
-        return np.zeros((boxes1.shape[0], boxes2.shape[0]), dtype=np.float32)
-
-    boxes1_coords = np.stack([
-        boxes1[:, 0],
-        boxes1[:, 1],
-        boxes1[:, 0] + boxes1[:, 2],
-        boxes1[:, 1] + boxes1[:, 3],
-    ], axis=1)
-
-    boxes2_coords = np.stack([
-        boxes2[:, 0],
-        boxes2[:, 1],
-        boxes2[:, 0] + boxes2[:, 2],
-        boxes2[:, 1] + boxes2[:, 3],
-    ], axis=1)
-
-    boxes1_expanded = boxes1_coords[:, np.newaxis, :]
-    boxes2_expanded = boxes2_coords[np.newaxis, :, :]
-
-    inter_x_min = np.maximum(
-        boxes1_expanded[:, :, 0], boxes2_expanded[:, :, 0]
-    )
-    inter_y_min = np.maximum(
-        boxes1_expanded[:, :, 1], boxes2_expanded[:, :, 1]
-    )
-    inter_x_max = np.minimum(
-        boxes1_expanded[:, :, 2], boxes2_expanded[:, :, 2]
-    )
-    inter_y_max = np.minimum(
-        boxes1_expanded[:, :, 3], boxes2_expanded[:, :, 3]
-    )
-
-    inter_width = np.maximum(0, inter_x_max - inter_x_min)
-    inter_height = np.maximum(0, inter_y_max - inter_y_min)
-    intersection_areas = inter_width * inter_height
-
-    return intersection_areas
-
-
-def _iou_vectorized(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
-    """
-    Calculate IoU between all pairs of boxes from two sets.
-
-    Args:
-        boxes1: Array of shape (N, 4) with [x, y, width, height].
-        boxes2: Array of shape (M, 4) with [x, y, width, height].
-
-    Returns:
-        Array of shape (N, M) with IoU scores.
-        Entry [i, j] is IoU between boxes1[i] and boxes2[j].
-    """
-    if boxes1.shape[0] == 0 or boxes2.shape[0] == 0:
-        return np.zeros((boxes1.shape[0], boxes2.shape[0]), dtype=np.float32)
-
-    intersection_areas = _calculate_intersection_areas_vectorized(
-        boxes1, boxes2
-    )
-
-    areas1 = boxes1[:, 2] * boxes1[:, 3]
-    areas2 = boxes2[:, 2] * boxes2[:, 3]
-
-    union_areas = (
-        areas1[:, np.newaxis] +
-        areas2[np.newaxis, :] -
-        intersection_areas
-    )
-
-    iou_matrix = np.divide(
-        intersection_areas,
-        union_areas,
-        out=np.zeros_like(intersection_areas),
-        where=union_areas > 0
-    )
-
-    return iou_matrix
-
-
-def _calculate_union_area(boxes: np.ndarray) -> float:
-    """
-    Calculate the area of the union of a set of rectangles.
-
-    Uses the Plane Sweep algorithm to compute the area of the union of N axis-aligned
-    rectangles in O(N^2) time (simplified implementation) or better.
-
-    Args:
-        boxes: Array of shape (N, 4) with [x, y, width, height].
-               Width and height must be positive.
-
-    Returns:
-        float: Total area of the union of the boxes.
-    """
-    if boxes.shape[0] == 0:
+    # Calculate intersection area
+    if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
+        return (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
+    else:
         return 0.0
 
-    x1 = boxes[:, 0]
-    y1 = boxes[:, 1]
-    x2 = x1 + boxes[:, 2]
-    y2 = y1 + boxes[:, 3]
 
-    # Get all unique y coordinates sort them
-    y_coords = np.unique(np.concatenate([y1, y2]))
-    y_coords.sort()
+def _get_intersection_box(box1: BBox, box2: BBox) -> Dict[str, float]:
+    """Get the bounding box representing the intersection of two boxes."""
+    x1_min = box1['x']
+    y1_min = box1['y']
+    x1_max = box1['x'] + box1['width']
+    y1_max = box1['y'] + box1['height']
 
-    total_area = 0.0
+    x2_min = box2['x']
+    y2_min = box2['y']
+    x2_max = box2['x'] + box2['width']
+    y2_max = box2['y'] + box2['height']
 
-    # Iterate through horizontal strips
-    for i in range(len(y_coords) - 1):
-        y_bottom = y_coords[i]
-        y_top = y_coords[i+1]
-        height = y_top - y_bottom
+    # Calculate intersection coordinates
+    inter_x_min = max(x1_min, x2_min)
+    inter_y_min = max(y1_min, y2_min)
+    inter_x_max = min(x1_max, x2_max)
+    inter_y_max = min(y1_max, y2_max)
 
-        if height <= 0:
-            continue
-
-        # Find all boxes that cover this strip
-        # A box covers the strip if box_y1 <= y_bottom and box_y2 >= y_top
-        mask = (y1 <= y_bottom) & (y2 >= y_top)
-        active_boxes_x1 = x1[mask]
-        active_boxes_x2 = x2[mask]
-
-        if len(active_boxes_x1) == 0:
-            continue
-
-        # Calculate union of x intervals for this strip
-        # Sort by x1
-        sort_idx = np.argsort(active_boxes_x1)
-        active_x1 = active_boxes_x1[sort_idx]
-        active_x2 = active_boxes_x2[sort_idx]
-
-        union_width = 0.0
-        current_x1 = active_x1[0]
-        current_x2 = active_x2[0]
-
-        for j in range(1, len(active_x1)):
-            next_x1 = active_x1[j]
-            next_x2 = active_x2[j]
-
-            if next_x1 < current_x2:
-                # Overlap, extend current end if needed
-                current_x2 = max(current_x2, next_x2)
-            else:
-                # No overlap, add current segment and start new one
-                union_width += current_x2 - current_x1
-                current_x1 = next_x1
-                current_x2 = next_x2
-
-        # Add last segment
-        union_width += current_x2 - current_x1
-
-        total_area += union_width * height
-
-    return float(total_area)
-
-
-# =============================================================================
-# Module metadata
-# =============================================================================
+    # Return intersection box if valid
+    if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
+        return {
+            'x': inter_x_min,
+            'y': inter_y_min,
+            'width': inter_x_max - inter_x_min,
+            'height': inter_y_max - inter_y_min
+        }
+    else:
+        return None
 
 __all__ = [
     'coverage',
@@ -678,6 +259,3 @@ __all__ = [
     'iou',
     'mean_iou',
 ]
-
-__version__ = '1.0.0'
-__author__ = 'COT-score Development Team'
