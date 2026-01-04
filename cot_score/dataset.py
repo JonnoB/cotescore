@@ -46,17 +46,16 @@ class NCSEDataset:
             raise FileNotFoundError(f"Annotations file not found: {csv_path}")
 
         if not images_dir.exists():
-            raise FileNotFoundError(
-                f"Images directory not found: {images_dir}")
+            raise FileNotFoundError(f"Images directory not found: {images_dir}")
 
         df = pd.read_csv(csv_path)
 
         actual_files = {f.name: f for f in images_dir.glob("*.png")}
         filename_mapping = self._create_filename_mapping(
-            df['filename'].unique(), list(actual_files.keys())
+            df["filename"].unique(), list(actual_files.keys())
         )
 
-        for csv_filename in df['filename'].unique():
+        for csv_filename in df["filename"].unique():
             actual_filename = filename_mapping.get(csv_filename)
             if not actual_filename:
                 continue
@@ -67,7 +66,7 @@ class NCSEDataset:
 
             self.images.append(str(image_path))
 
-            image_annotations = df[df['filename'] == csv_filename]
+            image_annotations = df[df["filename"] == csv_filename]
             annotations = self._build_annotations(image_annotations)
             self.annotations_by_image[str(image_path)] = annotations
 
@@ -98,8 +97,7 @@ class NCSEDataset:
         # Pattern to extract: PREFIX, DATE (YYYY-MM-DD), PAGE_NUM from CSV filename
         # Handles formats like: EWJ_1858-08-01_page_5.png, TEC_1884-03-15_page_23.png, NS2_1843-04-01_page_4.png
         # PREFIX can be letters and numbers (e.g., EWJ, TEC, NS2)
-        csv_pattern = re.compile(
-            r'([A-Z0-9]+)_.*?(\d{4}-\d{2}-\d{2})_page_(\d+)\.png')
+        csv_pattern = re.compile(r"([A-Z0-9]+)_.*?(\d{4}-\d{2}-\d{2})_page_(\d+)\.png")
 
         for csv_name in csv_filenames:
             match = csv_pattern.search(csv_name)
@@ -110,9 +108,7 @@ class NCSEDataset:
 
             prefix, date, page_num = match.groups()
 
-            matching_file = self._find_matching_file(
-                actual_filenames, prefix, page_num, date
-            )
+            matching_file = self._find_matching_file(actual_filenames, prefix, page_num, date)
 
             if not matching_file:
                 logger.warning(
@@ -124,10 +120,7 @@ class NCSEDataset:
 
             mapping[csv_name] = matching_file
 
-        logger.info(
-            f"Mapped {len(mapping)}/{len(csv_filenames)}"
-            f"CSV files to actual files"
-        )
+        logger.info(f"Mapped {len(mapping)}/{len(csv_filenames)}" f"CSV files to actual files")
         if unmatched:
             logger.warning(f"Failed to map {len(unmatched)}")
 
@@ -151,8 +144,8 @@ class NCSEDataset:
         """
         for actual_name in actual_filenames:
             if (
-                actual_name.startswith(f'{prefix}_')
-                and f'pagenum_{page_num}_' in actual_name
+                actual_name.startswith(f"{prefix}_")
+                and f"pagenum_{page_num}_" in actual_name
                 and date in actual_name
             ):
                 return actual_name
@@ -173,15 +166,15 @@ class NCSEDataset:
         """
         annotations = []
         for _, row in image_annotations.iterrows():
-            x1, y1, x2, y2 = row['x1'], row['y1'], row['x2'], row['y2']
+            x1, y1, x2, y2 = row["x1"], row["y1"], row["x2"], row["y2"]
             annotation = {
-                'x': float(x1),
-                'y': float(y1),
-                'width': float(x2 - x1),
-                'height': float(y2 - y1),
-                'class': row['class'],
-                'confidence': row.get('confidence', 1.0),
-                'page_id': row.get('page_id', ''),
+                "x": float(x1),
+                "y": float(y1),
+                "width": float(x2 - x1),
+                "height": float(y2 - y1),
+                "class": row["class"],
+                "confidence": row.get("confidence", 1.0),
+                "page_id": row.get("page_id", ""),
             }
             annotations.append(annotation)
         return annotations
@@ -206,16 +199,13 @@ class NCSEDataset:
             self.load()
 
         if idx < 0 or idx >= len(self.images):
-            raise IndexError(
-                f"Index {idx} out of range for dataset of size "
-                f"{len(self.images)}"
-            )
+            raise IndexError(f"Index {idx} out of range for dataset of size " f"{len(self.images)}")
 
         image_path = self.images[idx]
         return {
-            'image_path': image_path,
-            'annotations': self.annotations_by_image[image_path],
-            'filename': Path(image_path).name,
+            "image_path": image_path,
+            "annotations": self.annotations_by_image[image_path],
+            "filename": Path(image_path).name,
         }
 
     def get_annotations(self, idx: int) -> List[Dict[str, Any]]:
@@ -232,9 +222,6 @@ class NCSEDataset:
             self.load()
 
         if idx < 0 or idx >= len(self.images):
-            raise IndexError(
-                f"Index {idx} out of range for dataset of size "
-                f"{len(self.images)}"
-            )
+            raise IndexError(f"Index {idx} out of range for dataset of size " f"{len(self.images)}")
 
         return self.annotations_by_image[self.images[idx]]

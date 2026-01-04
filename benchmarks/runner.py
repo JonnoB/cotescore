@@ -37,7 +37,9 @@ class BenchmarkRunner:
         self.output_path = Path(output_path)
         self.output_path.mkdir(parents=True, exist_ok=True)
 
-    def measure_latency(self, model, sample_image_path: Path, warmup: int = 10, repeats: int = 50) -> Dict[str, float]:
+    def measure_latency(
+        self, model, sample_image_path: Path, warmup: int = 10, repeats: int = 50
+    ) -> Dict[str, float]:
         """
         Measure inference latency for a model.
 
@@ -73,7 +75,7 @@ class BenchmarkRunner:
         return {
             "mean_latency_ms": float(np.mean(latencies)),
             "std_latency_ms": float(np.std(latencies)),
-            "p95_latency_ms": float(np.percentile(latencies, 95))
+            "p95_latency_ms": float(np.percentile(latencies, 95)),
         }
 
     def run_evaluation(self, model, metrics: List[str] = None) -> Dict[str, Any]:
@@ -88,7 +90,7 @@ class BenchmarkRunner:
             Dictionary containing evaluation results
         """
         if metrics is None:
-            metrics = ['mean_iou', 'coverage', 'overlap', 'trespass', 'cot_score', 'map']
+            metrics = ["mean_iou", "coverage", "overlap", "trespass", "cot_score", "map"]
 
         logger.info(f"Loading NCSE dataset from {self.dataset_path}")
         dataset = NCSEDataset(self.dataset_path, split="test")
@@ -99,15 +101,15 @@ class BenchmarkRunner:
             model.load()
 
         # Initialize MAP metric if requested
-        map_metric = MAPMetric() if 'map' in metrics else None
+        map_metric = MAPMetric() if "map" in metrics else None
 
         results = {
-            'model': model.model_name,
-            'dataset': 'NCSE_v2_test',
-            'num_images': len(dataset),
-            'metrics': {},
-            'per_image_results': [],
-            'classes': {}
+            "model": model.model_name,
+            "dataset": "NCSE_v2_test",
+            "num_images": len(dataset),
+            "metrics": {},
+            "per_image_results": [],
+            "classes": {},
         }
 
         # Class Mapping for NCSE
@@ -115,19 +117,19 @@ class BenchmarkRunner:
         # Models produce: 'Title', 'Text', 'Table', 'Figure', 'Page-header', etc.
         def map_class(cls_name):
             cls_lower = str(cls_name).lower()
-            if cls_lower in ['figure', 'image', 'picture']:
-                return 'figure'
+            if cls_lower in ["figure", "image", "picture"]:
+                return "figure"
             # Map everything else to 'plain text' for this specific dataset benchmark
-            return 'plain text'
+            return "plain text"
 
         # Run inference and compute metrics for each image
         logger.info("Running evaluation...")
-        metric_totals = {metric: 0.0 for metric in metrics if metric != 'map'}
+        metric_totals = {metric: 0.0 for metric in metrics if metric != "map"}
 
         for idx in tqdm(range(len(dataset)), desc="Evaluating"):
             sample = dataset[idx]
-            image_path = Path(sample['image_path'])
-            ground_truth = sample['annotations']
+            image_path = Path(sample["image_path"])
+            ground_truth = sample["annotations"]
 
             # Run model prediction
             try:
@@ -141,7 +143,7 @@ class BenchmarkRunner:
                 mapped_preds = []
                 for p in predictions:
                     p_copy = p.copy()
-                    p_copy['class'] = map_class(p['class'])
+                    p_copy["class"] = map_class(p["class"])
                     mapped_preds.append(p_copy)
                 map_metric.update(mapped_preds, ground_truth)
 
@@ -156,17 +158,17 @@ class BenchmarkRunner:
             # Compute standard per-image metrics
             image_metrics = {}
             for metric_name in metrics:
-                if metric_name == 'map':
-                    continue # Computed globally
-                elif metric_name == 'mean_iou':
+                if metric_name == "map":
+                    continue  # Computed globally
+                elif metric_name == "mean_iou":
                     score = mean_iou(predictions, ground_truth)
-                elif metric_name == 'coverage':
+                elif metric_name == "coverage":
                     score = coverage(predictions, ground_truth)
-                elif metric_name == 'overlap':
+                elif metric_name == "overlap":
                     score = overlap(predictions, ground_truth)
-                elif metric_name == 'trespass':
+                elif metric_name == "trespass":
                     score = trespass(predictions, ground_truth)
-                elif metric_name == 'cot_score':
+                elif metric_name == "cot_score":
                     score = cot_score(predictions, ground_truth, image_width, image_height)
                 else:
                     logger.warning(f"Unknown per-image metric: {metric_name}")
@@ -177,30 +179,29 @@ class BenchmarkRunner:
                     metric_totals[metric_name] += score
 
             # Store per-image results
-            results['per_image_results'].append({
-                'filename': sample['filename'],
-                'metrics': image_metrics
-            })
+            results["per_image_results"].append(
+                {"filename": sample["filename"], "metrics": image_metrics}
+            )
 
         # Calculate average metrics
         for metric_name in metric_totals:
-            results['metrics'][metric_name] = metric_totals[metric_name] / len(dataset)
+            results["metrics"][metric_name] = metric_totals[metric_name] / len(dataset)
 
         # Compute Global mAP
         if map_metric:
             logger.info("Computing global mAP...")
             map_scores = map_metric.compute()
-            results['metrics']['map'] = map_scores['map']
-            results['metrics']['map_50'] = map_scores['map_50']
-            results['metrics']['map_75'] = map_scores['map_75']
-            if 'classes' in map_scores:
-                results['classes'] = map_scores['classes']
+            results["metrics"]["map"] = map_scores["map"]
+            results["metrics"]["map_50"] = map_scores["map_50"]
+            results["metrics"]["map_75"] = map_scores["map_75"]
+            if "classes" in map_scores:
+                results["classes"] = map_scores["classes"]
 
         # Measure Latency (on first image as sample)
         try:
-            sample_img = Path(dataset[0]['image_path'])
+            sample_img = Path(dataset[0]["image_path"])
             latency_stats = self.measure_latency(model, sample_img)
-            results['metrics'].update(latency_stats)
+            results["metrics"].update(latency_stats)
         except Exception as e:
             logger.warning(f"Failed to measure latency: {e}")
 
@@ -209,47 +210,49 @@ class BenchmarkRunner:
     def save_results(self, results: Dict[str, Any], filename: str = "results.json"):
         """Save evaluation results to disk."""
         output_file = self.output_path / filename
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(results, f, indent=2)
         logger.info(f"Results saved to: {output_file}")
 
     def print_summary(self, results: Dict[str, Any]):
         """Print a summary of evaluation results."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("EVALUATION SUMMARY")
-        print("="*60)
+        print("=" * 60)
         print(f"Model: {results['model']}")
         print(f"Images: {results['num_images']}")
         print("\nOverall Metrics:")
-        print("-"*60)
+        print("-" * 60)
 
-        metrics = results['metrics']
+        metrics = results["metrics"]
 
         # Priority Print
-        if 'map' in metrics:
+        if "map" in metrics:
             print(f"  mAP (COCO)     : {metrics['map']:.4f}")
             print(f"  mAP@50         : {metrics['map_50']:.4f}")
             print(f"  mAP@75         : {metrics['map_75']:.4f}")
             print("-" * 30)
 
-        for name in ['mean_iou', 'coverage', 'overlap', 'trespass']:
+        for name in ["mean_iou", "coverage", "overlap", "trespass"]:
             if name in metrics:
                 print(f"  {name.upper():15s}: {metrics[name]:.4f}")
 
         # Print COT score separately (can be negative)
-        if 'cot_score' in metrics:
+        if "cot_score" in metrics:
             print("-" * 30)
             print(f"  {'COT SCORE':15s}: {metrics['cot_score']:+.4f}")
 
-        if 'mean_latency_ms' in metrics:
-             print("-" * 30)
-             print(f"  Latency (ms)   : {metrics['mean_latency_ms']:.2f} ± {metrics['std_latency_ms']:.2f}")
+        if "mean_latency_ms" in metrics:
+            print("-" * 30)
+            print(
+                f"  Latency (ms)   : {metrics['mean_latency_ms']:.2f} ± {metrics['std_latency_ms']:.2f}"
+            )
 
-        if results.get('classes'):
+        if results.get("classes"):
             print("\nPer-Class AP:")
             print("-" * 30)
             # Sort by class name
-            for cls_name, score in sorted(results['classes'].items()):
+            for cls_name, score in sorted(results["classes"].items()):
                 print(f"  {cls_name:15s}: {score:.4f}")
 
-        print("="*60)
+        print("=" * 60)

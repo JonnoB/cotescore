@@ -18,8 +18,13 @@ class DocLayoutYOLO(LayoutModel):
     DEFAULT_MODEL = "juliozhao/DocLayout-YOLO-DocStructBench"
     DEFAULT_FILENAME = "doclayout_yolo_docstructbench_imgsz1024.pt"
 
-    def __init__(self, model_name: str = DEFAULT_MODEL,
-                 conf_threshold: float = 0.2, imgsz: int = 1024, device: str = "cpu"):
+    def __init__(
+        self,
+        model_name: str = DEFAULT_MODEL,
+        conf_threshold: float = 0.2,
+        imgsz: int = 1024,
+        device: str = "cpu",
+    ):
         """
         Initialize the DocLayout-YOLO model.
 
@@ -59,11 +64,9 @@ class DocLayoutYOLO(LayoutModel):
         """Load the DocStructBench model from HuggingFace."""
         try:
             from huggingface_hub import hf_hub_download
+
             logger.info("Downloading model from Hugging Face...")
-            filepath = hf_hub_download(
-                repo_id=self.DEFAULT_MODEL,
-                filename=self.DEFAULT_FILENAME
-            )
+            filepath = hf_hub_download(repo_id=self.DEFAULT_MODEL, filename=self.DEFAULT_FILENAME)
             logger.info(f"Model downloaded to: {filepath}")
             return YOLOv10(filepath)
         except Exception as e:
@@ -90,28 +93,28 @@ class DocLayoutYOLO(LayoutModel):
             imgsz=self.imgsz,
             conf=self.conf_threshold,
             device=self.device,
-            verbose=False
+            verbose=False,
         )
 
         if not results or len(results) == 0:
             return []
 
         result = results[0]
-        if not hasattr(result, 'boxes') or result.boxes is None:
+        if not hasattr(result, "boxes") or result.boxes is None:
             return []
 
         boxes = result.boxes
-        if not hasattr(boxes, 'xyxy'):
+        if not hasattr(boxes, "xyxy"):
             return []
 
         return self._extract_predictions(boxes, result)
 
     def _extract_predictions(self, boxes, result) -> List[Dict[str, Any]]:
         """Extract predictions from YOLO boxes."""
-        xyxy = boxes.xyxy.cpu().numpy() if hasattr(boxes.xyxy, 'cpu') else boxes.xyxy
-        cls_ids = boxes.cls.cpu().numpy() if hasattr(boxes.cls, 'cpu') else boxes.cls
-        confs = boxes.conf.cpu().numpy() if hasattr(boxes.conf, 'cpu') else boxes.conf
-        names = result.names if hasattr(result, 'names') else {}
+        xyxy = boxes.xyxy.cpu().numpy() if hasattr(boxes.xyxy, "cpu") else boxes.xyxy
+        cls_ids = boxes.cls.cpu().numpy() if hasattr(boxes.cls, "cpu") else boxes.cls
+        confs = boxes.conf.cpu().numpy() if hasattr(boxes.conf, "cpu") else boxes.conf
+        names = result.names if hasattr(result, "names") else {}
 
         predictions = []
         for i, box in enumerate(xyxy):
@@ -121,12 +124,12 @@ class DocLayoutYOLO(LayoutModel):
             class_name = names.get(class_id, f"class_{class_id}")
 
             prediction = {
-                'x': float(x1),
-                'y': float(y1),
-                'width': float(x2 - x1),
-                'height': float(y2 - y1),
-                'class': class_name,
-                'confidence': confidence
+                "x": float(x1),
+                "y": float(y1),
+                "width": float(x2 - x1),
+                "height": float(y2 - y1),
+                "class": class_name,
+                "confidence": confidence,
             }
             predictions.append(prediction)
 

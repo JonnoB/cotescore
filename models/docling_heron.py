@@ -52,7 +52,11 @@ class DoclingLayoutHeron(LayoutModel):
         """
         super().__init__(model_name)
         self.threshold = threshold
-        self.device = device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+        self.device = device or (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
         self.image_processor = None
 
     def load(self):
@@ -123,12 +127,12 @@ class DoclingLayoutHeron(LayoutModel):
             height = y2 - y
 
             prediction = {
-                'x': float(x),
-                'y': float(y),
-                'width': float(width),
-                'height': float(height),
-                'class': label,
-                'confidence': float(score_val)
+                "x": float(x),
+                "y": float(y),
+                "width": float(width),
+                "height": float(height),
+                "class": label,
+                "confidence": float(score_val),
             }
             predictions.append(prediction)
 

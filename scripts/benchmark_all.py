@@ -21,8 +21,7 @@ from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -61,24 +60,17 @@ def main():
 
     runner = BenchmarkRunner(dataset_path, output_path)
 
-    all_results = {
-        "timestamp": datetime.now().isoformat(),
-        "models": {}
-    }
+    all_results = {"timestamp": datetime.now().isoformat(), "models": {}}
 
     models_to_run = []
 
     if "yolo" in args.models:
-        models_to_run.append((
-            "DocLayout-YOLO",
-            DocLayoutYOLO(device=args.device if args.device else "cpu")
-        ))
+        models_to_run.append(
+            ("DocLayout-YOLO", DocLayoutYOLO(device=args.device if args.device else "cpu"))
+        )
 
     if "heron" in args.models:
-        models_to_run.append((
-            "DoclingLayoutHeron",
-            DoclingLayoutHeron(device=args.device)
-        ))
+        models_to_run.append(("DoclingLayoutHeron", DoclingLayoutHeron(device=args.device)))
 
     for model_name, model in models_to_run:
         logger.info(f"\n{'='*60}")
@@ -97,17 +89,18 @@ def main():
         except Exception as e:
             logger.error(f"Failed to benchmark {model_name}: {e}")
             import traceback
+
             traceback.print_exc()
 
     final_output = output_path / "benchmark_all_results.json"
-    with open(final_output, 'w') as f:
+    with open(final_output, "w") as f:
         json.dump(all_results, f, indent=2)
 
     logger.info(f"\nCombined results saved to: {final_output}")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("COMPARATIVE SUMMARY")
-    print("="*60)
+    print("=" * 60)
     print(f"{'Metric':<20} | {'YOLO':<15} | {'Heron':<15}")
     print("-" * 60)
 
@@ -120,7 +113,7 @@ def main():
         heron_str = f"{heron_score:.4f}" if isinstance(heron_score, float) else str(heron_score)
 
         print(f"{metric:<20} | {yolo_str:<15} | {heron_str:<15}")
-    print("="*60)
+    print("=" * 60)
 
 
 if __name__ == "__main__":

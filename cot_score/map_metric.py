@@ -1,4 +1,3 @@
-
 """
 mAP Metric implementation using torchmetrics.
 
@@ -12,6 +11,7 @@ from torchmetrics.detection.mean_ap import MeanAveragePrecision
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class MAPMetric:
     """
@@ -27,9 +27,7 @@ class MAPMetric:
         self._label_map = {}
         self._next_id = 0
 
-    def update(self,
-               predictions: List[Dict[str, Any]],
-               ground_truth: List[Dict[str, Any]]):
+    def update(self, predictions: List[Dict[str, Any]], ground_truth: List[Dict[str, Any]]):
         """
         Add a batch of predictions and ground truths.
 
@@ -44,27 +42,43 @@ class MAPMetric:
         pred_labels = []
 
         for p in predictions:
-            pred_boxes.append([p['x'], p['y'], p['width'], p['height']])
-            pred_scores.append(p.get('confidence', 0.0))
-            pred_labels.append(self._get_label_id(p['class']))
+            pred_boxes.append([p["x"], p["y"], p["width"], p["height"]])
+            pred_scores.append(p.get("confidence", 0.0))
+            pred_labels.append(self._get_label_id(p["class"]))
 
         target_boxes = []
         target_labels = []
 
         for g in ground_truth:
-            target_boxes.append([g['x'], g['y'], g['width'], g['height']])
-            target_labels.append(self._get_label_id(g['class']))
+            target_boxes.append([g["x"], g["y"], g["width"], g["height"]])
+            target_labels.append(self._get_label_id(g["class"]))
 
         # Create tensors
         p_dict = {
-            "boxes": torch.tensor(pred_boxes, dtype=torch.float32) if pred_boxes else torch.empty((0, 4)),
-            "scores": torch.tensor(pred_scores, dtype=torch.float32) if pred_scores else torch.empty(0),
-            "labels": torch.tensor(pred_labels, dtype=torch.long) if pred_labels else torch.empty(0, dtype=torch.long),
+            "boxes": (
+                torch.tensor(pred_boxes, dtype=torch.float32) if pred_boxes else torch.empty((0, 4))
+            ),
+            "scores": (
+                torch.tensor(pred_scores, dtype=torch.float32) if pred_scores else torch.empty(0)
+            ),
+            "labels": (
+                torch.tensor(pred_labels, dtype=torch.long)
+                if pred_labels
+                else torch.empty(0, dtype=torch.long)
+            ),
         }
 
         t_dict = {
-            "boxes": torch.tensor(target_boxes, dtype=torch.float32) if target_boxes else torch.empty((0, 4)),
-            "labels": torch.tensor(target_labels, dtype=torch.long) if target_labels else torch.empty(0, dtype=torch.long),
+            "boxes": (
+                torch.tensor(target_boxes, dtype=torch.float32)
+                if target_boxes
+                else torch.empty((0, 4))
+            ),
+            "labels": (
+                torch.tensor(target_labels, dtype=torch.long)
+                if target_labels
+                else torch.empty(0, dtype=torch.long)
+            ),
         }
 
         self.metric.update([p_dict], [t_dict])
@@ -87,7 +101,7 @@ class MAPMetric:
                 "map": float(results["map"]),
                 "map_50": float(results["map_50"]),
                 "map_75": float(results["map_75"]),
-                "classes": {}
+                "classes": {},
             }
 
             # Map per-class results back to names
@@ -123,6 +137,7 @@ class MAPMetric:
         except Exception as e:
             logger.error(f"Failed to compute mAP: {e}")
             import traceback
+
             traceback.print_exc()
             return {"map": 0.0, "map_50": 0.0, "map_75": 0.0}
 

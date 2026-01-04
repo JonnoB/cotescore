@@ -29,11 +29,13 @@ COLORS = {
     "background": (40, 40, 40),
 }
 
+
 def get_font(size=20):
     try:
         return ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size)
     except OSError:
         return ImageFont.load_default()
+
 
 def draw_boxes_pil(image_path, boxes, color, label_prefix="", thickness=3, font_size=20):
     img = Image.open(image_path).convert("RGB")
@@ -58,6 +60,7 @@ def draw_boxes_pil(image_path, boxes, color, label_prefix="", thickness=3, font_
 
     return img
 
+
 def create_comparison_image(image_path, ground_truth, predictions, metrics, output_path):
     gt_img = draw_boxes_pil(image_path, ground_truth, COLORS["ground_truth"], "GT: ", 2, 16)
     pred_img = draw_boxes_pil(image_path, predictions, COLORS["prediction"], "P: ", 2, 16)
@@ -77,8 +80,18 @@ def create_comparison_image(image_path, ground_truth, predictions, metrics, outp
     filename = Path(image_path).name
     draw.text((20, 20), f"Image: {filename}", fill=COLORS["text"], font=title_font)
 
-    draw.text((width // 2 - 100, padding - 35), f"Ground Truth ({len(ground_truth)})", fill=COLORS["ground_truth"], font=title_font)
-    draw.text((width + width // 2 - 100, padding - 35), f"Predictions ({len(predictions)})", fill=COLORS["prediction"], font=title_font)
+    draw.text(
+        (width // 2 - 100, padding - 35),
+        f"Ground Truth ({len(ground_truth)})",
+        fill=COLORS["ground_truth"],
+        font=title_font,
+    )
+    draw.text(
+        (width + width // 2 - 100, padding - 35),
+        f"Predictions ({len(predictions)})",
+        fill=COLORS["prediction"],
+        font=title_font,
+    )
 
     y_offset = 60
     draw.text((20, y_offset), "Metrics:", fill=COLORS["text"], font=metric_font)
@@ -109,10 +122,18 @@ def create_comparison_image(image_path, ground_truth, predictions, metrics, outp
                 color = COLORS["text"]
         elif metric in ["overlap", "trespass", "excess"]:
             # Lower is better
-            color = COLORS["ground_truth"] if score < 0.2 else (COLORS["prediction"] if score > 0.5 else COLORS["text"])
+            color = (
+                COLORS["ground_truth"]
+                if score < 0.2
+                else (COLORS["prediction"] if score > 0.5 else COLORS["text"])
+            )
         else:
             # Higher is better (coverage, mean_iou)
-            color = COLORS["ground_truth"] if score > 0.8 else (COLORS["prediction"] if score < 0.5 else COLORS["text"])
+            color = (
+                COLORS["ground_truth"]
+                if score > 0.8
+                else (COLORS["prediction"] if score < 0.5 else COLORS["text"])
+            )
 
         # Format score with sign for COT score
         if metric == "cot_score":
@@ -130,6 +151,7 @@ def create_comparison_image(image_path, ground_truth, predictions, metrics, outp
 
     comparison.save(output_path)
     print(f"Saved: {output_path}")
+
 
 def create_overlay_image(image_path, ground_truth, predictions, output_path):
     img = Image.open(image_path).convert("RGB")
@@ -151,10 +173,14 @@ def create_overlay_image(image_path, ground_truth, predictions, output_path):
     font = get_font(18)
 
     legend_draw.rectangle([20, 20, 60, 40], outline=COLORS["ground_truth"], width=3)
-    legend_draw.text((70, 22), f"Ground Truth ({len(ground_truth)})", fill=COLORS["ground_truth"], font=font)
+    legend_draw.text(
+        (70, 22), f"Ground Truth ({len(ground_truth)})", fill=COLORS["ground_truth"], font=font
+    )
 
     legend_draw.rectangle([300, 20, 340, 40], outline=COLORS["prediction"], width=3)
-    legend_draw.text((350, 22), f"Predictions ({len(predictions)})", fill=COLORS["prediction"], font=font)
+    legend_draw.text(
+        (350, 22), f"Predictions ({len(predictions)})", fill=COLORS["prediction"], font=font
+    )
 
     result = Image.new("RGB", (img.width, img.height + legend_height))
     result.paste(legend, (0, 0))
@@ -163,11 +189,14 @@ def create_overlay_image(image_path, ground_truth, predictions, output_path):
     result.save(output_path)
     print(f"Saved overlay: {output_path}")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Visualize predictions")
     parser.add_argument("--dataset", type=str, default="data/ncse", help="Dataset path")
     parser.add_argument("--output", type=str, default="visualizations", help="Output directory")
-    parser.add_argument("--model", type=str, default="juliozhao/DocLayout-YOLO-DocStructBench", help="Model name")
+    parser.add_argument(
+        "--model", type=str, default="juliozhao/DocLayout-YOLO-DocStructBench", help="Model name"
+    )
     parser.add_argument("--num-samples", type=int, default=5, help="Samples to visualize")
     parser.add_argument("--indices", nargs="+", type=int, help="Specific indices")
     parser.add_argument("--conf", type=float, default=0.2, help="Confidence threshold")
@@ -183,7 +212,9 @@ def main():
     dataset.load()
 
     print("Initializing model...")
-    model = DocLayoutYOLO(model_name=args.model, conf_threshold=args.conf, imgsz=1024, device=args.device)
+    model = DocLayoutYOLO(
+        model_name=args.model, conf_threshold=args.conf, imgsz=1024, device=args.device
+    )
     model.load()
 
     if args.indices:
@@ -218,9 +249,11 @@ def main():
         }
 
         print(f"  GT: {len(ground_truth)}, Preds: {len(predictions)}")
-        print(f"  Metrics: COT={metrics['cot_score']:+.3f}, Cov={metrics['coverage']:.3f}, "
-              f"Ovlp={metrics['overlap']:.3f}, Tres={metrics['trespass']:.3f}, "
-              f"Excess={metrics['excess']:.3f}, IoU={metrics['mean_iou']:.3f}")
+        print(
+            f"  Metrics: COT={metrics['cot_score']:+.3f}, Cov={metrics['coverage']:.3f}, "
+            f"Ovlp={metrics['overlap']:.3f}, Tres={metrics['trespass']:.3f}, "
+            f"Excess={metrics['excess']:.3f}, IoU={metrics['mean_iou']:.3f}"
+        )
 
         base_name = image_path.stem
         comparison_path = output_path / f"{base_name}_comparison.png"
@@ -230,11 +263,13 @@ def main():
             overlay_path = output_path / f"{base_name}_overlay.png"
             create_overlay_image(image_path, ground_truth, predictions, overlay_path)
 
-        results_summary.append({
-            "filename": filename,
-            "metrics": metrics,
-            "visualization": str(comparison_path),
-        })
+        results_summary.append(
+            {
+                "filename": filename,
+                "metrics": metrics,
+                "visualization": str(comparison_path),
+            }
+        )
         print()
 
     summary_path = output_path / "visualization_summary.json"
@@ -242,6 +277,7 @@ def main():
         json.dump(results_summary, f, indent=2)
 
     print(f"Done. Output: {output_path}")
+
 
 if __name__ == "__main__":
     main()

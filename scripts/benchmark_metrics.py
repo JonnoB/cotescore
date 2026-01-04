@@ -60,12 +60,14 @@ def format_table(data: List[List[str]], headers: List[str]) -> str:
     return "\n".join(lines)
 
 
-def generate_random_boxes(n_boxes: int,
-                         max_x: float = 1000.0,
-                         max_y: float = 1000.0,
-                         min_size: float = 10.0,
-                         max_size: float = 200.0,
-                         seed: int = None) -> List[Dict[str, float]]:
+def generate_random_boxes(
+    n_boxes: int,
+    max_x: float = 1000.0,
+    max_y: float = 1000.0,
+    min_size: float = 10.0,
+    max_size: float = 200.0,
+    seed: int = None,
+) -> List[Dict[str, float]]:
     """
     Generate random bounding boxes for testing.
 
@@ -90,17 +92,14 @@ def generate_random_boxes(n_boxes: int,
         x = np.random.uniform(0, max_x - width)
         y = np.random.uniform(0, max_y - height)
 
-        boxes.append({
-            'x': float(x),
-            'y': float(y),
-            'width': float(width),
-            'height': float(height)
-        })
+        boxes.append({"x": float(x), "y": float(y), "width": float(width), "height": float(height)})
 
     return boxes
 
 
-def benchmark_coverage(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[float, float, float]:
+def benchmark_coverage(
+    n_pred: int, n_gt: int, n_iterations: int = 10
+) -> Tuple[float, float, float]:
     """
     Benchmark coverage metric.
 
@@ -130,8 +129,9 @@ def benchmark_coverage(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[
         times_vectorized.append(time.perf_counter() - start)
 
         # Verify results match (within floating point tolerance)
-        assert abs(result_reference - result_vectorized) < 1e-5, \
-            f"Results don't match: {result_reference} vs {result_vectorized}"
+        assert (
+            abs(result_reference - result_vectorized) < 1e-5
+        ), f"Results don't match: {result_reference} vs {result_vectorized}"
 
     avg_reference = np.mean(times_reference)
     avg_vectorized = np.mean(times_vectorized)
@@ -170,8 +170,9 @@ def benchmark_overlap(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[f
         times_vectorized.append(time.perf_counter() - start)
 
         # Verify results match (within floating point tolerance)
-        assert abs(result_reference - result_vectorized) < 1e-5, \
-            f"Results don't match: {result_reference} vs {result_vectorized}"
+        assert (
+            abs(result_reference - result_vectorized) < 1e-5
+        ), f"Results don't match: {result_reference} vs {result_vectorized}"
 
     avg_reference = np.mean(times_reference)
     avg_vectorized = np.mean(times_vectorized)
@@ -180,7 +181,9 @@ def benchmark_overlap(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[f
     return avg_reference, avg_vectorized, speedup
 
 
-def benchmark_mean_iou(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[float, float, float]:
+def benchmark_mean_iou(
+    n_pred: int, n_gt: int, n_iterations: int = 10
+) -> Tuple[float, float, float]:
     """
     Benchmark mean_iou metric.
 
@@ -210,8 +213,9 @@ def benchmark_mean_iou(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[
         times_vectorized.append(time.perf_counter() - start)
 
         # Verify results match (within floating point tolerance)
-        assert abs(result_reference - result_vectorized) < 1e-5, \
-            f"Results don't match: {result_reference} vs {result_vectorized}"
+        assert (
+            abs(result_reference - result_vectorized) < 1e-5
+        ), f"Results don't match: {result_reference} vs {result_vectorized}"
 
     avg_reference = np.mean(times_reference)
     avg_vectorized = np.mean(times_vectorized)
@@ -236,17 +240,21 @@ def run_comprehensive_benchmark(sizes: List[Tuple[int, int]], n_iterations: int 
     for n_pred, n_gt in sizes:
         print(f"Testing with {n_pred} predictions, {n_gt} ground truth boxes...")
         orig_time, vec_time, speedup = benchmark_coverage(n_pred, n_gt, n_iterations)
-        coverage_results.append([
-            f"{n_pred}/{n_gt}",
-            f"{orig_time*1000:.4f}ms",
-            f"{vec_time*1000:.4f}ms",
-            f"{speedup:.2f}x"
-        ])
+        coverage_results.append(
+            [
+                f"{n_pred}/{n_gt}",
+                f"{orig_time*1000:.4f}ms",
+                f"{vec_time*1000:.4f}ms",
+                f"{speedup:.2f}x",
+            ]
+        )
 
-    print("\n" + format_table(
-        coverage_results,
-        headers=["Size (pred/gt)", "Reference", "Vectorized", "Speedup"]
-    ))
+    print(
+        "\n"
+        + format_table(
+            coverage_results, headers=["Size (pred/gt)", "Reference", "Vectorized", "Speedup"]
+        )
+    )
 
     print("\n" + "=" * 80)
     print("OVERLAP METRIC BENCHMARK")
@@ -256,17 +264,21 @@ def run_comprehensive_benchmark(sizes: List[Tuple[int, int]], n_iterations: int 
     for n_pred, n_gt in sizes:
         print(f"Testing with {n_pred} predictions, {n_gt} ground truth boxes...")
         orig_time, vec_time, speedup = benchmark_overlap(n_pred, n_gt, n_iterations)
-        overlap_results.append([
-            f"{n_pred}/{n_gt}",
-            f"{orig_time*1000:.4f}ms",
-            f"{vec_time*1000:.4f}ms",
-            f"{speedup:.2f}x"
-        ])
+        overlap_results.append(
+            [
+                f"{n_pred}/{n_gt}",
+                f"{orig_time*1000:.4f}ms",
+                f"{vec_time*1000:.4f}ms",
+                f"{speedup:.2f}x",
+            ]
+        )
 
-    print("\n" + format_table(
-        overlap_results,
-        headers=["Size (pred/gt)", "Reference", "Vectorized", "Speedup"]
-    ))
+    print(
+        "\n"
+        + format_table(
+            overlap_results, headers=["Size (pred/gt)", "Reference", "Vectorized", "Speedup"]
+        )
+    )
 
     print("\n" + "=" * 80)
     print("MEAN IOU METRIC BENCHMARK")
@@ -276,17 +288,21 @@ def run_comprehensive_benchmark(sizes: List[Tuple[int, int]], n_iterations: int 
     for n_pred, n_gt in sizes:
         print(f"Testing with {n_pred} predictions, {n_gt} ground truth boxes...")
         orig_time, vec_time, speedup = benchmark_mean_iou(n_pred, n_gt, n_iterations)
-        iou_results.append([
-            f"{n_pred}/{n_gt}",
-            f"{orig_time*1000:.4f}ms",
-            f"{vec_time*1000:.4f}ms",
-            f"{speedup:.2f}x"
-        ])
+        iou_results.append(
+            [
+                f"{n_pred}/{n_gt}",
+                f"{orig_time*1000:.4f}ms",
+                f"{vec_time*1000:.4f}ms",
+                f"{speedup:.2f}x",
+            ]
+        )
 
-    print("\n" + format_table(
-        iou_results,
-        headers=["Size (pred/gt)", "Reference", "Vectorized", "Speedup"]
-    ))
+    print(
+        "\n"
+        + format_table(
+            iou_results, headers=["Size (pred/gt)", "Reference", "Vectorized", "Speedup"]
+        )
+    )
 
 
 def main():
@@ -294,16 +310,9 @@ def main():
         description="Benchmark original vs vectorized metrics implementation"
     )
     parser.add_argument(
-        "--iterations",
-        type=int,
-        default=10,
-        help="Number of iterations to average (default: 10)"
+        "--iterations", type=int, default=10, help="Number of iterations to average (default: 10)"
     )
-    parser.add_argument(
-        "--quick",
-        action="store_true",
-        help="Run quick benchmark with fewer sizes"
-    )
+    parser.add_argument("--quick", action="store_true", help="Run quick benchmark with fewer sizes")
 
     args = parser.parse_args()
 

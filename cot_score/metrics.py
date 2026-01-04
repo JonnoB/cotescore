@@ -18,8 +18,8 @@ from typing import List, Dict, Any
 # Type alias for bounding box dictionary
 BBox = Dict[str, Any]
 
-def coverage(predicted_regions: List[BBox],
-             ground_truth_regions: List[BBox]) -> float:
+
+def coverage(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
     """
     Calculate coverage metric between predicted and ground truth regions.
 
@@ -45,7 +45,7 @@ def coverage(predicted_regions: List[BBox],
     covered_area = 0.0
 
     for gt_box in ground_truth_regions:
-        gt_area = gt_box['width'] * gt_box['height']
+        gt_area = gt_box["width"] * gt_box["height"]
         total_gt_area += gt_area
 
         # find intersections with this gt_box
@@ -65,8 +65,7 @@ def coverage(predicted_regions: List[BBox],
     return covered_area / total_gt_area if total_gt_area > 0 else 0.0
 
 
-def overlap(predicted_regions: List[BBox],
-            ground_truth_regions: List[BBox]) -> float:
+def overlap(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
     """
     Calculate overlap metric between predicted regions.
 
@@ -86,8 +85,7 @@ def overlap(predicted_regions: List[BBox],
     if not ground_truth_regions:
         return 0.0
 
-    total_gt_area = sum(gt['width'] * gt['height']
-                        for gt in ground_truth_regions)
+    total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
     if total_gt_area == 0:
         return 0.0
 
@@ -96,8 +94,7 @@ def overlap(predicted_regions: List[BBox],
     # For each pair of predictions, find their overlap within ground truth
     for i in range(len(predicted_regions)):
         for j in range(i + 1, len(predicted_regions)):
-            inter_box = _get_intersection_box(
-                predicted_regions[i], predicted_regions[j])
+            inter_box = _get_intersection_box(predicted_regions[i], predicted_regions[j])
             if not inter_box:
                 continue
 
@@ -127,15 +124,14 @@ def iou(box1: BBox, box2: BBox) -> float:
     """
     intersection = _calculate_intersection_area(box1, box2)
 
-    area1 = box1['width'] * box1['height']
-    area2 = box2['width'] * box2['height']
+    area1 = box1["width"] * box1["height"]
+    area2 = box2["width"] * box2["height"]
     union = area1 + area2 - intersection
 
     return intersection / union if union > 0 else 0.0
 
 
-def mean_iou(predicted_regions: List[BBox],
-             ground_truth_regions: List[BBox]) -> float:
+def mean_iou(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
     """
     Calculate mean Intersection over Union (IoU) across ground truth boxes.
 
@@ -156,16 +152,14 @@ def mean_iou(predicted_regions: List[BBox],
         return 0.0
 
     total_iou = sum(
-        max((iou(pred_box, gt_box)
-            for pred_box in predicted_regions), default=0.0)
+        max((iou(pred_box, gt_box) for pred_box in predicted_regions), default=0.0)
         for gt_box in ground_truth_regions
     )
 
     return total_iou / len(ground_truth_regions)
 
 
-def trespass(predicted_regions: List[BBox],
-             ground_truth_regions: List[BBox]) -> float:
+def trespass(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
     """
     Trespass measures how much of the ground truth is covered by a prediction
     that belongs to a different SSU (Ground Truth Region).
@@ -195,7 +189,7 @@ def trespass(predicted_regions: List[BBox],
     if n == 0 or m <= 1:
         return 0.0
 
-    total_gt_area = sum(gt['width'] * gt['height'] for gt in ground_truth_regions)
+    total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
     if total_gt_area == 0:
         return 0.0
 
@@ -207,12 +201,12 @@ def trespass(predicted_regions: List[BBox],
         max_inter_area = -1.0
 
         # Store all intersections to avoid recomputing
-        intersections = [] # List of (gt_idx, intersection_area, intersection_box)
+        intersections = []  # List of (gt_idx, intersection_area, intersection_box)
 
         for i, gt in enumerate(ground_truth_regions):
             inter_box = _get_intersection_box(pred, gt)
             if inter_box:
-                area = inter_box['width'] * inter_box['height']
+                area = inter_box["width"] * inter_box["height"]
                 intersections.append((i, area, inter_box))
                 if area > max_inter_area:
                     max_inter_area = area
@@ -238,7 +232,7 @@ def trespass(predicted_regions: List[BBox],
     T_raw = total_trespass_area / total_gt_area
 
     # Find minimum GT area (A_S_min)
-    min_gt_area = min(gt['width'] * gt['height'] for gt in ground_truth_regions)
+    min_gt_area = min(gt["width"] * gt["height"] for gt in ground_truth_regions)
 
     # Normalize by maximum error (Equation 13)
     # T = (A_S × T_raw) / (n × (A_S - A_S_min))
@@ -255,10 +249,12 @@ def trespass(predicted_regions: List[BBox],
     return min(1.0, max(0.0, T))
 
 
-def excess(predicted_regions: List[BBox],
-           ground_truth_regions: List[BBox],
-           image_width: float,
-           image_height: float) -> float:
+def excess(
+    predicted_regions: List[BBox],
+    ground_truth_regions: List[BBox],
+    image_width: float,
+    image_height: float,
+) -> float:
     """
     Excess measures the amount of area covered by predictions that is not part
     of any ground truth region (SSU). It is normalized by the white space area.
@@ -282,7 +278,7 @@ def excess(predicted_regions: List[BBox],
         return 0.0
 
     image_area = image_width * image_height
-    total_gt_area = sum(gt['width'] * gt['height'] for gt in ground_truth_regions)
+    total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
 
     white_space_area = image_area - total_gt_area
 
@@ -302,7 +298,7 @@ def excess(predicted_regions: List[BBox],
     # This gives us the area of predictions that's NOT in white space
     if not ground_truth_regions:
         # No ground truth means entire prediction area is in white space
-        total_pred_area = sum(p['width'] * p['height'] for p in predicted_regions)
+        total_pred_area = sum(p["width"] * p["height"] for p in predicted_regions)
         pred_in_white_space = total_pred_area
     else:
         # Calculate union of all predictions
@@ -335,13 +331,15 @@ def excess(predicted_regions: List[BBox],
     return min(1.0, max(0.0, excess_score))
 
 
-def cot_score(predicted_regions: List[BBox],
-              ground_truth_regions: List[BBox],
-              image_width: float,
-              image_height: float,
-              weight_coverage: float = 1.0,
-              weight_overlap: float = 1.0,
-              weight_trespass: float = 1.0) -> float:
+def cot_score(
+    predicted_regions: List[BBox],
+    ground_truth_regions: List[BBox],
+    image_width: float,
+    image_height: float,
+    weight_coverage: float = 1.0,
+    weight_overlap: float = 1.0,
+    weight_trespass: float = 1.0,
+) -> float:
     """
     Calculate the overall COT (Coverage, Overlap, Trespass) score (Equation 14).
 
@@ -401,6 +399,7 @@ def cot_score(predicted_regions: List[BBox],
 # Internal helper functions
 # =============================================================================
 
+
 def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
     """
     Calculate the union area of a list of boxes using the grid method.
@@ -413,10 +412,10 @@ def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
     xs = set()
     ys = set()
     for box in boxes:
-        xs.add(box['x'])
-        xs.add(box['x'] + box['width'])
-        ys.add(box['y'])
-        ys.add(box['y'] + box['height'])
+        xs.add(box["x"])
+        xs.add(box["x"] + box["width"])
+        ys.add(box["y"])
+        ys.add(box["y"] + box["height"])
 
     sorted_xs = sorted(list(xs))
     sorted_ys = sorted(list(ys))
@@ -426,8 +425,8 @@ def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
     # Iterate over grid cells
     for i in range(len(sorted_xs) - 1):
         for j in range(len(sorted_ys) - 1):
-            x1, x2 = sorted_xs[i], sorted_xs[i+1]
-            y1, y2 = sorted_ys[j], sorted_ys[j+1]
+            x1, x2 = sorted_xs[i], sorted_xs[i + 1]
+            y1, y2 = sorted_ys[j], sorted_ys[j + 1]
 
             # Check if this cell is inside any intersection box
             cell_mid_x = (x1 + x2) / 2
@@ -435,8 +434,10 @@ def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
 
             covered = False
             for box in boxes:
-                if (box['x'] <= cell_mid_x <= box['x'] + box['width'] and
-                    box['y'] <= cell_mid_y <= box['y'] + box['height']):
+                if (
+                    box["x"] <= cell_mid_x <= box["x"] + box["width"]
+                    and box["y"] <= cell_mid_y <= box["y"] + box["height"]
+                ):
                     covered = True
                     break
 
@@ -448,15 +449,15 @@ def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
 
 def _calculate_intersection_area(box1: BBox, box2: BBox) -> float:
     """Calculate the intersection area between two bounding boxes."""
-    x1_min = box1['x']
-    y1_min = box1['y']
-    x1_max = box1['x'] + box1['width']
-    y1_max = box1['y'] + box1['height']
+    x1_min = box1["x"]
+    y1_min = box1["y"]
+    x1_max = box1["x"] + box1["width"]
+    y1_max = box1["y"] + box1["height"]
 
-    x2_min = box2['x']
-    y2_min = box2['y']
-    x2_max = box2['x'] + box2['width']
-    y2_max = box2['y'] + box2['height']
+    x2_min = box2["x"]
+    y2_min = box2["y"]
+    x2_max = box2["x"] + box2["width"]
+    y2_max = box2["y"] + box2["height"]
 
     # Calculate intersection coordinates
     inter_x_min = max(x1_min, x2_min)
@@ -473,15 +474,15 @@ def _calculate_intersection_area(box1: BBox, box2: BBox) -> float:
 
 def _get_intersection_box(box1: BBox, box2: BBox) -> Dict[str, float]:
     """Get the bounding box representing the intersection of two boxes."""
-    x1_min = box1['x']
-    y1_min = box1['y']
-    x1_max = box1['x'] + box1['width']
-    y1_max = box1['y'] + box1['height']
+    x1_min = box1["x"]
+    y1_min = box1["y"]
+    x1_max = box1["x"] + box1["width"]
+    y1_max = box1["y"] + box1["height"]
 
-    x2_min = box2['x']
-    y2_min = box2['y']
-    x2_max = box2['x'] + box2['width']
-    y2_max = box2['y'] + box2['height']
+    x2_min = box2["x"]
+    y2_min = box2["y"]
+    x2_max = box2["x"] + box2["width"]
+    y2_max = box2["y"] + box2["height"]
 
     # Calculate intersection coordinates
     inter_x_min = max(x1_min, x2_min)
@@ -492,20 +493,21 @@ def _get_intersection_box(box1: BBox, box2: BBox) -> Dict[str, float]:
     # Return intersection box if valid
     if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
         return {
-            'x': inter_x_min,
-            'y': inter_y_min,
-            'width': inter_x_max - inter_x_min,
-            'height': inter_y_max - inter_y_min
+            "x": inter_x_min,
+            "y": inter_y_min,
+            "width": inter_x_max - inter_x_min,
+            "height": inter_y_max - inter_y_min,
         }
     else:
         return None
 
+
 __all__ = [
-    'coverage',
-    'overlap',
-    'iou',
-    'mean_iou',
-    'trespass',
-    'excess',
-    'cot_score',
+    "coverage",
+    "overlap",
+    "iou",
+    "mean_iou",
+    "trespass",
+    "excess",
+    "cot_score",
 ]

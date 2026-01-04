@@ -15,8 +15,9 @@ making them useful for:
 from typing import List, Dict, Any
 
 
-def coverage(predicted_regions: List[Dict[str, Any]],
-             ground_truth_regions: List[Dict[str, Any]]) -> float:
+def coverage(
+    predicted_regions: List[Dict[str, Any]], ground_truth_regions: List[Dict[str, Any]]
+) -> float:
     """
     Reference implementation of coverage metric.
 
@@ -40,7 +41,7 @@ def coverage(predicted_regions: List[Dict[str, Any]],
     covered_area = 0.0
 
     for gt_box in ground_truth_regions:
-        gt_area = gt_box['width'] * gt_box['height']
+        gt_area = gt_box["width"] * gt_box["height"]
         total_gt_area += gt_area
 
         # find intersections with this gt_box
@@ -58,10 +59,10 @@ def coverage(predicted_regions: List[Dict[str, Any]],
         xs = set()
         ys = set()
         for box in intersections:
-            xs.add(box['x'])
-            xs.add(box['x'] + box['width'])
-            ys.add(box['y'])
-            ys.add(box['y'] + box['height'])
+            xs.add(box["x"])
+            xs.add(box["x"] + box["width"])
+            ys.add(box["y"])
+            ys.add(box["y"] + box["height"])
 
         sorted_xs = sorted(list(xs))
         sorted_ys = sorted(list(ys))
@@ -71,8 +72,8 @@ def coverage(predicted_regions: List[Dict[str, Any]],
         # Iterate over grid cells
         for i in range(len(sorted_xs) - 1):
             for j in range(len(sorted_ys) - 1):
-                x1, x2 = sorted_xs[i], sorted_xs[i+1]
-                y1, y2 = sorted_ys[j], sorted_ys[j+1]
+                x1, x2 = sorted_xs[i], sorted_xs[i + 1]
+                y1, y2 = sorted_ys[j], sorted_ys[j + 1]
 
                 # Check if this cell is inside any intersection box
                 cell_mid_x = (x1 + x2) / 2
@@ -80,8 +81,10 @@ def coverage(predicted_regions: List[Dict[str, Any]],
 
                 covered = False
                 for box in intersections:
-                    if (box['x'] <= cell_mid_x <= box['x'] + box['width'] and
-                        box['y'] <= cell_mid_y <= box['y'] + box['height']):
+                    if (
+                        box["x"] <= cell_mid_x <= box["x"] + box["width"]
+                        and box["y"] <= cell_mid_y <= box["y"] + box["height"]
+                    ):
                         covered = True
                         break
 
@@ -93,8 +96,9 @@ def coverage(predicted_regions: List[Dict[str, Any]],
     return covered_area / total_gt_area if total_gt_area > 0 else 0.0
 
 
-def overlap(predicted_regions: List[Dict[str, Any]],
-            ground_truth_regions: List[Dict[str, Any]]) -> float:
+def overlap(
+    predicted_regions: List[Dict[str, Any]], ground_truth_regions: List[Dict[str, Any]]
+) -> float:
     """
     Reference implementation of overlap metric.
 
@@ -114,8 +118,7 @@ def overlap(predicted_regions: List[Dict[str, Any]],
     if not ground_truth_regions:
         return 0.0
 
-    total_gt_area = sum(gt['width'] * gt['height']
-                        for gt in ground_truth_regions)
+    total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
     if total_gt_area == 0:
         return 0.0
 
@@ -124,8 +127,7 @@ def overlap(predicted_regions: List[Dict[str, Any]],
     # For each pair of predictions, find their overlap within ground truth
     for i in range(len(predicted_regions)):
         for j in range(i + 1, len(predicted_regions)):
-            inter_box = _get_intersection_box(
-                predicted_regions[i], predicted_regions[j])
+            inter_box = _get_intersection_box(predicted_regions[i], predicted_regions[j])
             if not inter_box:
                 continue
 
@@ -155,15 +157,16 @@ def iou(box1: Dict[str, float], box2: Dict[str, float]) -> float:
     """
     intersection = _calculate_intersection_area(box1, box2)
 
-    area1 = box1['width'] * box1['height']
-    area2 = box2['width'] * box2['height']
+    area1 = box1["width"] * box1["height"]
+    area2 = box2["width"] * box2["height"]
     union = area1 + area2 - intersection
 
     return intersection / union if union > 0 else 0.0
 
 
-def mean_iou(predicted_regions: List[Dict[str, Any]],
-             ground_truth_regions: List[Dict[str, Any]]) -> float:
+def mean_iou(
+    predicted_regions: List[Dict[str, Any]], ground_truth_regions: List[Dict[str, Any]]
+) -> float:
     """
     Reference implementation of mean_iou metric.
 
@@ -181,8 +184,7 @@ def mean_iou(predicted_regions: List[Dict[str, Any]],
         return 0.0
 
     total_iou = sum(
-        max((iou(pred_box, gt_box)
-            for pred_box in predicted_regions), default=0.0)
+        max((iou(pred_box, gt_box) for pred_box in predicted_regions), default=0.0)
         for gt_box in ground_truth_regions
     )
 
@@ -191,17 +193,18 @@ def mean_iou(predicted_regions: List[Dict[str, Any]],
 
 # Helper functions
 
+
 def _calculate_intersection_area(box1: Dict[str, float], box2: Dict[str, float]) -> float:
     """Calculate the intersection area between two bounding boxes."""
-    x1_min = box1['x']
-    y1_min = box1['y']
-    x1_max = box1['x'] + box1['width']
-    y1_max = box1['y'] + box1['height']
+    x1_min = box1["x"]
+    y1_min = box1["y"]
+    x1_max = box1["x"] + box1["width"]
+    y1_max = box1["y"] + box1["height"]
 
-    x2_min = box2['x']
-    y2_min = box2['y']
-    x2_max = box2['x'] + box2['width']
-    y2_max = box2['y'] + box2['height']
+    x2_min = box2["x"]
+    y2_min = box2["y"]
+    x2_max = box2["x"] + box2["width"]
+    y2_max = box2["y"] + box2["height"]
 
     # Calculate intersection coordinates
     inter_x_min = max(x1_min, x2_min)
@@ -218,15 +221,15 @@ def _calculate_intersection_area(box1: Dict[str, float], box2: Dict[str, float])
 
 def _get_intersection_box(box1: Dict[str, float], box2: Dict[str, float]) -> Dict[str, float]:
     """Get the bounding box representing the intersection of two boxes."""
-    x1_min = box1['x']
-    y1_min = box1['y']
-    x1_max = box1['x'] + box1['width']
-    y1_max = box1['y'] + box1['height']
+    x1_min = box1["x"]
+    y1_min = box1["y"]
+    x1_max = box1["x"] + box1["width"]
+    y1_max = box1["y"] + box1["height"]
 
-    x2_min = box2['x']
-    y2_min = box2['y']
-    x2_max = box2['x'] + box2['width']
-    y2_max = box2['y'] + box2['height']
+    x2_min = box2["x"]
+    y2_min = box2["y"]
+    x2_max = box2["x"] + box2["width"]
+    y2_max = box2["y"] + box2["height"]
 
     # Calculate intersection coordinates
     inter_x_min = max(x1_min, x2_min)
@@ -237,10 +240,10 @@ def _get_intersection_box(box1: Dict[str, float], box2: Dict[str, float]) -> Dic
     # Return intersection box if valid
     if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
         return {
-            'x': inter_x_min,
-            'y': inter_y_min,
-            'width': inter_x_max - inter_x_min,
-            'height': inter_y_max - inter_y_min
+            "x": inter_x_min,
+            "y": inter_y_min,
+            "width": inter_x_max - inter_x_min,
+            "height": inter_y_max - inter_y_min,
         }
     else:
         return None
