@@ -42,6 +42,7 @@ benchmarks = [
     "torch>=2.5.1",
     "torchvision>=0.20.1",
     "torchmetrics>=1.0.0",
+    "pycocotools>=2.0.0",
     "transformers>=4.46.3",
     "datasets>=2.0.0",
     "huggingface-hub>=0.16.0",
