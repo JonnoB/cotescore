@@ -6,6 +6,8 @@ This module provides metrics for evaluating document layout analysis predictions
 - overlap: Measures duplication/repetition in predictions
 - iou: Intersection over Union for two boxes
 - mean_iou: Average IoU across all ground truth boxes
+- trespass: Measures false positive coverage on wrong ground truth regions
+- excess: Measures coverage of background (non-ground truth) area
 
 NOTE: This is the SIMPLIFIED REFERENCE IMPLEMENTATION for easier debugging.
 Performance will be slower than the vectorized numpy version.
@@ -56,41 +58,8 @@ def coverage(predicted_regions: List[BBox],
         if not intersections:
             continue
 
-        # Calculate union area of intersections using grid method (Coordinate Compression)
-        # Collect all x and y coordinates
-        xs = set()
-        ys = set()
-        for box in intersections:
-            xs.add(box['x'])
-            xs.add(box['x'] + box['width'])
-            ys.add(box['y'])
-            ys.add(box['y'] + box['height'])
-
-        sorted_xs = sorted(list(xs))
-        sorted_ys = sorted(list(ys))
-
-        union_area = 0.0
-
-        # Iterate over grid cells
-        for i in range(len(sorted_xs) - 1):
-            for j in range(len(sorted_ys) - 1):
-                x1, x2 = sorted_xs[i], sorted_xs[i+1]
-                y1, y2 = sorted_ys[j], sorted_ys[j+1]
-
-                # Check if this cell is inside any intersection box
-                cell_mid_x = (x1 + x2) / 2
-                cell_mid_y = (y1 + y2) / 2
-
-                covered = False
-                for box in intersections:
-                    if (box['x'] <= cell_mid_x <= box['x'] + box['width'] and
-                        box['y'] <= cell_mid_y <= box['y'] + box['height']):
-                        covered = True
-                        break
-
-                if covered:
-                    union_area += (x2 - x1) * (y2 - y1)
-
+        # Calculate union area of intersections
+        union_area = _calculate_union_area_from_boxes(intersections)
         covered_area += union_area
 
     return covered_area / total_gt_area if total_gt_area > 0 else 0.0
@@ -195,9 +164,287 @@ def mean_iou(predicted_regions: List[BBox],
     return total_iou / len(ground_truth_regions)
 
 
+def trespass(predicted_regions: List[BBox],
+             ground_truth_regions: List[BBox]) -> float:
+    """
+    Trespass measures how much of the ground truth is covered by a prediction
+    that belongs to a different SSU (Ground Truth Region).
+    For each prediction, we identify the 'owner' GT (highest intersection area).
+    Any overlap with *other* GTs is counted as trespass.
+
+    From the paper (Equation 13):
+    T = (A_S × T_raw) / (n × (A_S - A_S_min))
+
+    where:
+    - T_raw = Σ_j Σ(M_S\\i ⊙ M_p_j) / A_S
+    - n = number of predictions
+    - A_S = total ground truth area
+    - A_S_min = smallest ground truth region area
+    - m = number of ground truth regions
+
+    Args:
+        predicted_regions: List of predicted bounding boxes.
+        ground_truth_regions: List of ground truth bounding boxes.
+
+    Returns:
+        Trespass score in range [0.0, 1.0]. Normalized by maximum possible trespass.
+    """
+    n = len(predicted_regions)
+    m = len(ground_truth_regions)
+
+    if n == 0 or m <= 1:
+        return 0.0
+
+    total_gt_area = sum(gt['width'] * gt['height'] for gt in ground_truth_regions)
+    if total_gt_area == 0:
+        return 0.0
+
+    total_trespass_area = 0.0
+
+    for pred in predicted_regions:
+        # 1. Find best matching GT ('owner')
+        best_gt_idx = -1
+        max_inter_area = -1.0
+
+        # Store all intersections to avoid recomputing
+        intersections = [] # List of (gt_idx, intersection_area, intersection_box)
+
+        for i, gt in enumerate(ground_truth_regions):
+            inter_box = _get_intersection_box(pred, gt)
+            if inter_box:
+                area = inter_box['width'] * inter_box['height']
+                intersections.append((i, area, inter_box))
+                if area > max_inter_area:
+                    max_inter_area = area
+                    best_gt_idx = i
+
+        if best_gt_idx == -1:
+            # Prediction overlaps with NO ground truth.
+            # It doesn't belong to any SSU, so it can't trespass on a 'different' one.
+            # It is purely excess.
+            continue
+
+        # 2. Sum overlap with all OTHER GTs
+        trespass_boxes = []
+        for i, area, box in intersections:
+            if i != best_gt_idx:
+                trespass_boxes.append(box)
+
+        # Calculate union of trespass regions (to handle overlapping GTs correctly)
+        if trespass_boxes:
+            total_trespass_area += _calculate_union_area_from_boxes(trespass_boxes)
+
+    # Compute T_raw
+    T_raw = total_trespass_area / total_gt_area
+
+    # Find minimum GT area (A_S_min)
+    min_gt_area = min(gt['width'] * gt['height'] for gt in ground_truth_regions)
+
+    # Normalize by maximum error (Equation 13)
+    # T = (A_S × T_raw) / (n × (A_S - A_S_min))
+    # This simplifies to:
+    denominator = n * (total_gt_area - min_gt_area)
+
+    if denominator == 0:
+        # All GTs have the same area, or single GT
+        return 0.0
+
+    T = total_trespass_area / denominator
+
+    # Clamp to [0, 1] for safety
+    return min(1.0, max(0.0, T))
+
+
+def excess(predicted_regions: List[BBox],
+           ground_truth_regions: List[BBox],
+           image_width: float,
+           image_height: float) -> float:
+    """
+    Excess measures the amount of area covered by predictions that is not part
+    of any ground truth region (SSU). It is normalized by the white space area.
+
+    From the paper:
+    - N = J - M_S (white space = image - ground truth)
+    - E = Σ(N ⊙ M_p,b) / A_N
+    where M_p,b is the binary mask of all predictions and A_N is white space area.
+
+    Args:
+        predicted_regions: List of predicted bounding boxes.
+        ground_truth_regions: List of ground truth bounding boxes.
+        image_width: Width of the image.
+        image_height: Height of the image.
+
+    Returns:
+        Excess score in range [0.0, 1.0]. 0 means predictions don't extend into
+        white space, 1 means predictions cover all white space.
+    """
+    if not predicted_regions:
+        return 0.0
+
+    image_area = image_width * image_height
+    total_gt_area = sum(gt['width'] * gt['height'] for gt in ground_truth_regions)
+
+    white_space_area = image_area - total_gt_area
+
+    if white_space_area <= 0:
+        return 0.0
+
+    # Compute binary union of all predictions (M_p,b in the paper)
+    if len(predicted_regions) == 1:
+        # Single prediction - no need to compute union
+        pred_union_boxes = [predicted_regions[0]]
+    else:
+        # For multiple predictions, we need to compute their union
+        # We'll use the grid method similar to coverage
+        pred_union_boxes = predicted_regions  # We'll handle union in the calculation below
+
+    # Calculate intersection of predictions with ground truth
+    # This gives us the area of predictions that's NOT in white space
+    if not ground_truth_regions:
+        # No ground truth means entire prediction area is in white space
+        total_pred_area = sum(p['width'] * p['height'] for p in predicted_regions)
+        pred_in_white_space = total_pred_area
+    else:
+        # Calculate union of all predictions
+        pred_union_area = _calculate_union_area_from_boxes(predicted_regions)
+
+        # Calculate intersection of prediction union with ground truth union
+        # First, find all pairwise intersections between predictions and ground truth
+        all_intersections = []
+        for pred in predicted_regions:
+            for gt in ground_truth_regions:
+                inter = _get_intersection_box(pred, gt)
+                if inter:
+                    all_intersections.append(inter)
+
+        # Calculate union of all these intersections
+        # This is the area where predictions overlap with ground truth
+        if all_intersections:
+            pred_gt_overlap_area = _calculate_union_area_from_boxes(all_intersections)
+        else:
+            pred_gt_overlap_area = 0.0
+
+        # Predictions in white space = total prediction area - overlap with GT
+        pred_in_white_space = pred_union_area - pred_gt_overlap_area
+
+    # Normalize by white space area (A_N)
+    # This ensures the metric is bounded [0, 1]
+    excess_score = pred_in_white_space / white_space_area
+
+    # Clamp to [0, 1] to handle any floating point precision issues
+    return min(1.0, max(0.0, excess_score))
+
+
+def cot_score(predicted_regions: List[BBox],
+              ground_truth_regions: List[BBox],
+              image_width: float,
+              image_height: float,
+              weight_coverage: float = 1.0,
+              weight_overlap: float = 1.0,
+              weight_trespass: float = 1.0) -> float:
+    """
+    Calculate the overall COT (Coverage, Overlap, Trespass) score (Equation 14).
+
+    The COT score combines the three core metrics to provide a single quality measure
+    for document layout predictions. From the paper:
+
+    COT score = C - O - T
+
+    where:
+    - C = Coverage (how well predictions cover ground truth)
+    - O = Overlap (duplicated/repeated content in predictions)
+    - T = Trespass (predictions covering wrong ground truth regions)
+
+    Score interpretation:
+    - 1.0: Perfect score (full coverage, no overlap, no trespass)
+    - 0.0: No predictions
+    - -1.0: Maximum error (both overlap and trespass maximized)
+
+    Note: When n ≤ 1 (single or no predictions), Overlap and Trespass are
+    impossible, so only Coverage is calculated.
+
+    Args:
+        predicted_regions: List of predicted bounding boxes.
+        ground_truth_regions: List of ground truth bounding boxes.
+        image_width: Width of the image.
+        image_height: Height of the image.
+        weight_coverage: Weight for coverage component (default: 1.0).
+        weight_overlap: Weight for overlap component (default: 1.0).
+        weight_trespass: Weight for trespass component (default: 1.0).
+
+    Returns:
+        COT score. Range is typically [-1.0, 1.0] with equal weights.
+        - 1.0 = perfect
+        - 0.0 = no predictions
+        - -1.0 = maximum error
+    """
+    n = len(predicted_regions)
+
+    # Calculate Coverage (always computed)
+    C = coverage(predicted_regions, ground_truth_regions)
+
+    # For n ≤ 1, Overlap and Trespass are impossible (always 0)
+    if n <= 1:
+        O = 0.0
+        T = 0.0
+    else:
+        O = overlap(predicted_regions, ground_truth_regions)
+        T = trespass(predicted_regions, ground_truth_regions)
+
+    # Compute weighted COT score
+    cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
+
+    return cot
+
+
 # =============================================================================
 # Internal helper functions
 # =============================================================================
+
+def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
+    """
+    Calculate the union area of a list of boxes using the grid method.
+    Adapted from original coverage implementation.
+    """
+    if not boxes:
+        return 0.0
+
+    # Collect all x and y coordinates
+    xs = set()
+    ys = set()
+    for box in boxes:
+        xs.add(box['x'])
+        xs.add(box['x'] + box['width'])
+        ys.add(box['y'])
+        ys.add(box['y'] + box['height'])
+
+    sorted_xs = sorted(list(xs))
+    sorted_ys = sorted(list(ys))
+
+    union_area = 0.0
+
+    # Iterate over grid cells
+    for i in range(len(sorted_xs) - 1):
+        for j in range(len(sorted_ys) - 1):
+            x1, x2 = sorted_xs[i], sorted_xs[i+1]
+            y1, y2 = sorted_ys[j], sorted_ys[j+1]
+
+            # Check if this cell is inside any intersection box
+            cell_mid_x = (x1 + x2) / 2
+            cell_mid_y = (y1 + y2) / 2
+
+            covered = False
+            for box in boxes:
+                if (box['x'] <= cell_mid_x <= box['x'] + box['width'] and
+                    box['y'] <= cell_mid_y <= box['y'] + box['height']):
+                    covered = True
+                    break
+
+            if covered:
+                union_area += (x2 - x1) * (y2 - y1)
+
+    return union_area
+
 
 def _calculate_intersection_area(box1: BBox, box2: BBox) -> float:
     """Calculate the intersection area between two bounding boxes."""
@@ -258,4 +505,7 @@ __all__ = [
     'overlap',
     'iou',
     'mean_iou',
+    'trespass',
+    'excess',
+    'cot_score',
 ]

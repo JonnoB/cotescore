@@ -15,8 +15,9 @@ import numpy as np
 from tqdm import tqdm
 
 from cot_score.dataset import NCSEDataset
-from cot_score.metrics import coverage, overlap, mean_iou
+from cot_score.metrics import coverage, overlap, mean_iou, trespass, cot_score
 from cot_score.map_metric import MAPMetric
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +82,13 @@ class BenchmarkRunner:
 
         Args:
             model: Model instance to evaluate
-            metrics: List of metric names (default: ['mean_iou', 'coverage', 'overlap', 'map'])
+            metrics: List of metric names (default: ['mean_iou', 'coverage', 'overlap', 'trespass', 'cot_score', 'map'])
 
         Returns:
             Dictionary containing evaluation results
         """
         if metrics is None:
-            metrics = ['mean_iou', 'coverage', 'overlap', 'map']
+            metrics = ['mean_iou', 'coverage', 'overlap', 'trespass', 'cot_score', 'map']
 
         logger.info(f"Loading NCSE dataset from {self.dataset_path}")
         dataset = NCSEDataset(self.dataset_path, split="test")
@@ -144,6 +145,14 @@ class BenchmarkRunner:
                     mapped_preds.append(p_copy)
                 map_metric.update(mapped_preds, ground_truth)
 
+            # Get image dimensions for metrics that need them
+            try:
+                with Image.open(image_path) as img:
+                    image_width, image_height = img.size
+            except Exception as e:
+                logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
+                image_width, image_height = 1000, 1000  # Default fallback
+
             # Compute standard per-image metrics
             image_metrics = {}
             for metric_name in metrics:
@@ -155,6 +164,10 @@ class BenchmarkRunner:
                     score = coverage(predictions, ground_truth)
                 elif metric_name == 'overlap':
                     score = overlap(predictions, ground_truth)
+                elif metric_name == 'trespass':
+                    score = trespass(predictions, ground_truth)
+                elif metric_name == 'cot_score':
+                    score = cot_score(predictions, ground_truth, image_width, image_height)
                 else:
                     logger.warning(f"Unknown per-image metric: {metric_name}")
                     score = 0.0
@@ -219,9 +232,14 @@ class BenchmarkRunner:
             print(f"  mAP@75         : {metrics['map_75']:.4f}")
             print("-" * 30)
 
-        for name in ['mean_iou', 'coverage', 'overlap']:
+        for name in ['mean_iou', 'coverage', 'overlap', 'trespass']:
             if name in metrics:
                 print(f"  {name.upper():15s}: {metrics[name]:.4f}")
+
+        # Print COT score separately (can be negative)
+        if 'cot_score' in metrics:
+            print("-" * 30)
+            print(f"  {'COT SCORE':15s}: {metrics['cot_score']:+.4f}")
 
         if 'mean_latency_ms' in metrics:
              print("-" * 30)

@@ -19,7 +19,7 @@ sys.path.insert(0, str(project_root))
 
 from models.doclayout_yolo import DocLayoutYOLO
 from cot_score.dataset import NCSEDataset
-from cot_score.metrics import mean_iou, coverage, overlap
+from cot_score.metrics import mean_iou, coverage, overlap, trespass, excess, cot_score
 
 COLORS = {
     "ground_truth": (0, 255, 0),
@@ -63,7 +63,8 @@ def create_comparison_image(image_path, ground_truth, predictions, metrics, outp
     pred_img = draw_boxes_pil(image_path, predictions, COLORS["prediction"], "P: ", 2, 16)
 
     width, height = gt_img.size
-    padding = 200
+    # Increase padding to accommodate more metrics (6 metrics with descriptions)
+    padding = 300
     comparison = Image.new("RGB", (width * 2 + 40, height + padding), COLORS["background"])
 
     comparison.paste(gt_img, (10, padding))
@@ -87,15 +88,39 @@ def create_comparison_image(image_path, ground_truth, predictions, metrics, outp
         "mean_iou": "Intersection over Union",
         "coverage": "GT area covered",
         "overlap": "Prediction duplicates",
+        "trespass": "Wrong GT overlap",
+        "excess": "Background coverage",
+        "cot_score": "Overall quality (C-O-T)",
     }
 
-    for metric, score in metrics.items():
-        if metric == "overlap":
+    # Define metric order for display
+    metric_order = ["cot_score", "coverage", "overlap", "trespass", "excess", "mean_iou"]
+    sorted_metrics = {k: metrics[k] for k in metric_order if k in metrics}
+
+    for metric, score in sorted_metrics.items():
+        # Color coding based on metric type
+        if metric == "cot_score":
+            # COT score: green if > 0.7, red if < 0, yellow otherwise
+            if score > 0.7:
+                color = COLORS["ground_truth"]
+            elif score < 0:
+                color = COLORS["prediction"]
+            else:
+                color = COLORS["text"]
+        elif metric in ["overlap", "trespass", "excess"]:
+            # Lower is better
             color = COLORS["ground_truth"] if score < 0.2 else (COLORS["prediction"] if score > 0.5 else COLORS["text"])
         else:
+            # Higher is better (coverage, mean_iou)
             color = COLORS["ground_truth"] if score > 0.8 else (COLORS["prediction"] if score < 0.5 else COLORS["text"])
 
-        draw.text((20, y_offset), f"  {metric.upper()}: {score:.4f}", fill=color, font=metric_font)
+        # Format score with sign for COT score
+        if metric == "cot_score":
+            score_str = f"{score:+.4f}"
+        else:
+            score_str = f"{score:.4f}"
+
+        draw.text((20, y_offset), f"  {metric.upper()}: {score_str}", fill=color, font=metric_font)
         y_offset += 25
 
         desc = descriptions.get(metric, "")
@@ -179,14 +204,23 @@ def main():
         print(f"Processing {filename}...")
         predictions = model.predict(image_path)
 
+        # Get image dimensions for excess and cot_score
+        with Image.open(image_path) as img:
+            image_width, image_height = img.size
+
         metrics = {
             "mean_iou": mean_iou(predictions, ground_truth),
             "coverage": coverage(predictions, ground_truth),
             "overlap": overlap(predictions, ground_truth),
+            "trespass": trespass(predictions, ground_truth),
+            "excess": excess(predictions, ground_truth, image_width, image_height),
+            "cot_score": cot_score(predictions, ground_truth, image_width, image_height),
         }
 
         print(f"  GT: {len(ground_truth)}, Preds: {len(predictions)}")
-        print(f"  Metrics: IoU={metrics['mean_iou']:.3f}, Cov={metrics['coverage']:.3f}, Overlap={metrics['overlap']:.3f}")
+        print(f"  Metrics: COT={metrics['cot_score']:+.3f}, Cov={metrics['coverage']:.3f}, "
+              f"Ovlp={metrics['overlap']:.3f}, Tres={metrics['trespass']:.3f}, "
+              f"Excess={metrics['excess']:.3f}, IoU={metrics['mean_iou']:.3f}")
 
         base_name = image_path.stem
         comparison_path = output_path / f"{base_name}_comparison.png"
