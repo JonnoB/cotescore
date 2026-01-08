@@ -67,10 +67,20 @@ def coverage(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
 
 def overlap(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
     """
-    Calculate overlap metric between predicted regions.
+    Calculate overlap metric between predicted regions according to paper Equation 3.
 
     Overlap measures the degree to which predictions overlap with each other,
     indicating repeated/duplicated content.
+
+    From the paper (Equations 3-5):
+        O_raw = Σ(M_S ⊙ (M_p - M_p,b)) / A_S
+        O = O_raw / (n-1) if n > 1, else 0
+
+    Where:
+        M_S = ground truth mask
+        M_p = sum of all prediction masks (overlaps counted multiple times)
+        M_p,b = binary union of predictions (overlaps counted once)
+        M_p - M_p,b = areas covered 2+ times
 
     Args:
         predicted_regions: List of predicted bounding boxes.
@@ -89,24 +99,67 @@ def overlap(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> 
     if total_gt_area == 0:
         return 0.0
 
+    # Calculate M_p - M_p,b using grid-based approach
+    # Collect all x and y coordinates to create grid
+    xs = set()
+    ys = set()
+    for pred in predicted_regions:
+        xs.add(pred["x"])
+        xs.add(pred["x"] + pred["width"])
+        ys.add(pred["y"])
+        ys.add(pred["y"] + pred["height"])
+
+    # Include ground truth coordinates in grid to handle alignment correctly
+    for gt in ground_truth_regions:
+        xs.add(gt["x"])
+        xs.add(gt["x"] + gt["width"])
+        ys.add(gt["y"])
+        ys.add(gt["y"] + gt["height"])
+
+    sorted_xs = sorted(list(xs))
+    sorted_ys = sorted(list(ys))
+
     overlap_area = 0.0
 
-    # For each pair of predictions, find their overlap within ground truth
-    for i in range(len(predicted_regions)):
-        for j in range(i + 1, len(predicted_regions)):
-            inter_box = _get_intersection_box(predicted_regions[i], predicted_regions[j])
-            if not inter_box:
-                continue
+    # Iterate over grid cells
+    for i in range(len(sorted_xs) - 1):
+        for j in range(len(sorted_ys) - 1):
+            x1, x2 = sorted_xs[i], sorted_xs[i + 1]
+            y1, y2 = sorted_ys[j], sorted_ys[j + 1]
+            cell_mid_x = (x1 + x2) / 2
+            cell_mid_y = (y1 + y2) / 2
 
-            # Sum overlap of prediction intersection with each ground truth region
-            for gt_box in ground_truth_regions:
-                gt_overlap = _calculate_intersection_area(inter_box, gt_box)
-                overlap_area += gt_overlap
+            # Count how many predictions cover this cell (M_p value)
+            coverage_count = 0
+            for pred in predicted_regions:
+                if (
+                    pred["x"] <= cell_mid_x < pred["x"] + pred["width"]
+                    and pred["y"] <= cell_mid_y < pred["y"] + pred["height"]
+                ):
+                    coverage_count += 1
 
-    # Calculate raw overlap score (normalized by ground truth area)
+            # M_p - M_p,b: if covered 2+ times, count (coverage_count - 1)
+            if coverage_count >= 2:
+                redundancy = coverage_count - 1
+
+                # Check if this cell is within any ground truth region (M_S mask)
+                within_gt = False
+                for gt in ground_truth_regions:
+                    if (
+                        gt["x"] <= cell_mid_x < gt["x"] + gt["width"]
+                        and gt["y"] <= cell_mid_y < gt["y"] + gt["height"]
+                    ):
+                        within_gt = True
+                        break
+
+                if within_gt:
+                    cell_area = (x2 - x1) * (y2 - y1)
+                    overlap_area += redundancy * cell_area
+
+    # Calculate raw overlap score (Equation 3)
     O_raw = overlap_area / total_gt_area
 
-    # Normalize by maximum possible overlap (n-1) and clamp to [0, 1]
+    # Normalize by maximum possible overlap (n-1) (Equation 5)
     O = O_raw / (len(predicted_regions) - 1)
     return min(1.0, max(0.0, O))
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Visualize DocLayout-YOLO predictions on NCSE test images.
+Visualize document layout model predictions on NCSE test images.
+Supports multiple model types: DocLayout-YOLO, Docling Heron, etc.
 """
 
 import argparse
@@ -18,6 +19,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from models.doclayout_yolo import DocLayoutYOLO
+from models.docling_heron import DoclingLayoutHeron
 from cot_score.dataset import NCSEDataset
 from cot_score.metrics import mean_iou, coverage, overlap, trespass, excess, cot_score
 
@@ -61,7 +63,7 @@ def draw_boxes_pil(image_path, boxes, color, label_prefix="", thickness=3, font_
     return img
 
 
-def create_comparison_image(image_path, ground_truth, predictions, metrics, output_path):
+def create_comparison_image(image_path, ground_truth, predictions, metrics, output_path, model_name=None):
     gt_img = draw_boxes_pil(image_path, ground_truth, COLORS["ground_truth"], "GT: ", 2, 16)
     pred_img = draw_boxes_pil(image_path, predictions, COLORS["prediction"], "P: ", 2, 16)
 
@@ -76,9 +78,14 @@ def create_comparison_image(image_path, ground_truth, predictions, metrics, outp
     draw = ImageDraw.Draw(comparison)
     title_font = get_font(24)
     metric_font = get_font(18)
+    small_font = get_font(16)
 
     filename = Path(image_path).name
     draw.text((20, 20), f"Image: {filename}", fill=COLORS["text"], font=title_font)
+
+    # Add model name if provided
+    if model_name:
+        draw.text((20, 50), f"Model: {model_name}", fill=(180, 180, 180), font=small_font)
 
     draw.text(
         (width // 2 - 100, padding - 35),
@@ -93,7 +100,7 @@ def create_comparison_image(image_path, ground_truth, predictions, metrics, outp
         font=title_font,
     )
 
-    y_offset = 60
+    y_offset = 85 if model_name else 60
     draw.text((20, y_offset), "Metrics:", fill=COLORS["text"], font=metric_font)
     y_offset += 30
 
@@ -191,30 +198,57 @@ def create_overlay_image(image_path, ground_truth, predictions, output_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize predictions")
+    parser = argparse.ArgumentParser(description="Visualize predictions from document layout models")
     parser.add_argument("--dataset", type=str, default="data/ncse", help="Dataset path")
     parser.add_argument("--output", type=str, default="visualizations", help="Output directory")
     parser.add_argument(
-        "--model", type=str, default="juliozhao/DocLayout-YOLO-DocStructBench", help="Model name"
+        "--model-type",
+        type=str,
+        choices=["yolo", "heron"],
+        default="yolo",
+        help="Model architecture type (yolo=DocLayout-YOLO, heron=Docling Heron)"
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model name or path for inference (displayed on visualizations). "
+             "Defaults: yolo='juliozhao/DocLayout-YOLO-DocStructBench', heron='ds4sd/docling-layout-heron'"
     )
     parser.add_argument("--num-samples", type=int, default=5, help="Samples to visualize")
     parser.add_argument("--indices", nargs="+", type=int, help="Specific indices")
     parser.add_argument("--conf", type=float, default=0.2, help="Confidence threshold")
-    parser.add_argument("--device", type=str, default="cpu", help="Device")
+    parser.add_argument("--device", type=str, default="cpu", help="Device (cpu, cuda, mps)")
     parser.add_argument("--overlay", action="store_true", help="Create overlay")
 
     args = parser.parse_args()
     output_path = Path(args.output)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    # Set default model names based on model type
+    if args.model is None:
+        if args.model_type == "yolo":
+            args.model = "juliozhao/DocLayout-YOLO-DocStructBench"
+        elif args.model_type == "heron":
+            args.model = "ds4sd/docling-layout-heron"
+
     print(f"Loading dataset: {args.dataset}")
     dataset = NCSEDataset(Path(args.dataset), split="test")
     dataset.load()
 
-    print("Initializing model...")
-    model = DocLayoutYOLO(
-        model_name=args.model, conf_threshold=args.conf, imgsz=1024, device=args.device
-    )
+    # Initialize the appropriate model based on type
+    print(f"Initializing {args.model_type} model: {args.model}")
+    if args.model_type == "yolo":
+        model = DocLayoutYOLO(
+            model_name=args.model, conf_threshold=args.conf, imgsz=1024, device=args.device
+        )
+    elif args.model_type == "heron":
+        model = DoclingLayoutHeron(
+            model_name=args.model, threshold=args.conf, device=args.device
+        )
+    else:
+        raise ValueError(f"Unsupported model type: {args.model_type}")
+
     model.load()
 
     if args.indices:
@@ -257,7 +291,7 @@ def main():
 
         base_name = image_path.stem
         comparison_path = output_path / f"{base_name}_comparison.png"
-        create_comparison_image(image_path, ground_truth, predictions, metrics, comparison_path)
+        create_comparison_image(image_path, ground_truth, predictions, metrics, comparison_path, model_name=args.model)
 
         if args.overlay:
             overlay_path = output_path / f"{base_name}_overlay.png"
