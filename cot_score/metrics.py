@@ -434,13 +434,14 @@ def cot_score(
     # Calculate Coverage (always computed)
     C = coverage(predicted_regions, ground_truth_regions)
 
-    # For n ≤ 1, Overlap and Trespass are impossible (always 0)
+    # Calculate Trespass (handles its own edge cases, e.g. need m > 1)
+    T = trespass(predicted_regions, ground_truth_regions)
+
+    # For n <= 1, Overlap is impossible (always 0)
     if n <= 1:
         O = 0.0
-        T = 0.0
     else:
         O = overlap(predicted_regions, ground_truth_regions)
-        T = trespass(predicted_regions, ground_truth_regions)
 
     # Compute weighted COT score
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
