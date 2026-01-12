@@ -3,9 +3,11 @@ Tests for the MAPMetric class using torchmetrics.
 """
 
 import pytest
+
 try:
     import torch
     from cot_score.map_metric import MAPMetric
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False

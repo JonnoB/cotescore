@@ -5,6 +5,7 @@ from pathlib import Path
 
 try:
     from benchmarks.runner import BenchmarkRunner
+
     BENCHMARKS_AVAILABLE = True
 except ImportError:
     BENCHMARKS_AVAILABLE = False

@@ -4,6 +4,7 @@ import pytest
 
 try:
     from models.loader import LayoutModel
+
     MODELS_AVAILABLE = True
 except ImportError:
     MODELS_AVAILABLE = False

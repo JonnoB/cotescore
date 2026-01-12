@@ -63,7 +63,9 @@ def draw_boxes_pil(image_path, boxes, color, label_prefix="", thickness=3, font_
     return img
 
 
-def create_comparison_image(image_path, ground_truth, predictions, metrics, output_path, model_name=None):
+def create_comparison_image(
+    image_path, ground_truth, predictions, metrics, output_path, model_name=None
+):
     gt_img = draw_boxes_pil(image_path, ground_truth, COLORS["ground_truth"], "GT: ", 2, 16)
     pred_img = draw_boxes_pil(image_path, predictions, COLORS["prediction"], "P: ", 2, 16)
 
@@ -198,7 +200,9 @@ def create_overlay_image(image_path, ground_truth, predictions, output_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize predictions from document layout models")
+    parser = argparse.ArgumentParser(
+        description="Visualize predictions from document layout models"
+    )
     parser.add_argument("--dataset", type=str, default="data/ncse", help="Dataset path")
     parser.add_argument("--output", type=str, default="visualizations", help="Output directory")
     parser.add_argument(
@@ -206,14 +210,14 @@ def main():
         type=str,
         choices=["yolo", "heron"],
         default="yolo",
-        help="Model architecture type (yolo=DocLayout-YOLO, heron=Docling Heron)"
+        help="Model architecture type (yolo=DocLayout-YOLO, heron=Docling Heron)",
     )
     parser.add_argument(
         "--model",
         type=str,
         default=None,
         help="Model name or path for inference (displayed on visualizations). "
-             "Defaults: yolo='juliozhao/DocLayout-YOLO-DocStructBench', heron='ds4sd/docling-layout-heron'"
+        "Defaults: yolo='juliozhao/DocLayout-YOLO-DocStructBench', heron='ds4sd/docling-layout-heron'",
     )
     parser.add_argument("--num-samples", type=int, default=5, help="Samples to visualize")
     parser.add_argument("--indices", nargs="+", type=int, help="Specific indices")
@@ -243,9 +247,7 @@ def main():
             model_name=args.model, conf_threshold=args.conf, imgsz=1024, device=args.device
         )
     elif args.model_type == "heron":
-        model = DoclingLayoutHeron(
-            model_name=args.model, threshold=args.conf, device=args.device
-        )
+        model = DoclingLayoutHeron(model_name=args.model, threshold=args.conf, device=args.device)
     else:
         raise ValueError(f"Unsupported model type: {args.model_type}")
 
@@ -291,7 +293,9 @@ def main():
 
         base_name = image_path.stem
         comparison_path = output_path / f"{base_name}_comparison.png"
-        create_comparison_image(image_path, ground_truth, predictions, metrics, comparison_path, model_name=args.model)
+        create_comparison_image(
+            image_path, ground_truth, predictions, metrics, comparison_path, model_name=args.model
+        )
 
         if args.overlay:
             overlay_path = output_path / f"{base_name}_overlay.png"

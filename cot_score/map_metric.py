@@ -27,7 +27,9 @@ class MAPMetric:
             from torchmetrics.detection.mean_ap import MeanAveragePrecision
         except ImportError as e:
             logger.error("torchmetrics or torch not installed. Cannot use MAPMetric.")
-            raise ImportError("MAPMetric requires 'benchmarks' dependencies. Install with pip install '.[benchmarks]'") from e
+            raise ImportError(
+                "MAPMetric requires 'benchmarks' dependencies. Install with pip install '.[benchmarks]'"
+            ) from e
 
         # Enable class_metrics to get per-class scores
         self.metric = MeanAveragePrecision(box_format="xywh", iou_type="bbox", class_metrics=True)
