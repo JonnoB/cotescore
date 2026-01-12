@@ -1,9 +1,15 @@
 """Tests for model loading and inference."""
 
 import pytest
-from models.loader import LayoutModel
+
+try:
+    from models.loader import LayoutModel
+    MODELS_AVAILABLE = True
+except ImportError:
+    MODELS_AVAILABLE = False
 
 
+@pytest.mark.skipif(not MODELS_AVAILABLE, reason="models dependencies not installed")
 class TestLayoutModel:
     """Tests for the LayoutModel base class."""
 
