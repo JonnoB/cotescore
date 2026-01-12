@@ -6,8 +6,6 @@ to compute COCO-style mAP scores for document layout analysis.
 """
 
 from typing import List, Dict, Any, Union, Optional
-import torch
-from torchmetrics.detection.mean_ap import MeanAveragePrecision
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,12 +14,21 @@ logger = logging.getLogger(__name__)
 class MAPMetric:
     """
     Wrapper for computing Mean Average Precision (mAP).
+    Wrapper around torchmetrics.detection.mean_ap.MeanAveragePrecision.
     """
 
     def __init__(self):
         """
         Initialize the mAP metric.
+        Raises ImportError if torchmetrics is not installed.
         """
+        try:
+            import torch
+            from torchmetrics.detection.mean_ap import MeanAveragePrecision
+        except ImportError as e:
+            logger.error("torchmetrics or torch not installed. Cannot use MAPMetric.")
+            raise ImportError("MAPMetric requires 'benchmarks' dependencies. Install with pip install '.[benchmarks]'") from e
+
         # Enable class_metrics to get per-class scores
         self.metric = MeanAveragePrecision(box_format="xywh", iou_type="bbox", class_metrics=True)
         self._label_map = {}
@@ -54,6 +61,8 @@ class MAPMetric:
             target_labels.append(self._get_label_id(g["class"]))
 
         # Create tensors
+        import torch
+
         p_dict = {
             "boxes": (
                 torch.tensor(pred_boxes, dtype=torch.float32) if pred_boxes else torch.empty((0, 4))

@@ -3,10 +3,15 @@ Tests for the MAPMetric class using torchmetrics.
 """
 
 import pytest
-import torch
-from cot_score.map_metric import MAPMetric
+try:
+    import torch
+    from cot_score.map_metric import MAPMetric
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch/torchmetrics not installed")
 class TestMAPMetric:
 
     def test_perfect_match(self):
