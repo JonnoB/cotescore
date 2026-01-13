@@ -2,9 +2,16 @@
 
 import pytest
 from pathlib import Path
-from benchmarks.runner import BenchmarkRunner
+
+try:
+    from benchmarks.runner import BenchmarkRunner
+
+    BENCHMARKS_AVAILABLE = True
+except ImportError:
+    BENCHMARKS_AVAILABLE = False
 
 
+@pytest.mark.skipif(not BENCHMARKS_AVAILABLE, reason="benchmarks dependencies not installed")
 class TestBenchmarkRunner:
     """Tests for the BenchmarkRunner."""
 
