@@ -75,7 +75,7 @@ def _(df):
 
 @app.cell(hide_code=True)
 def _(df_line, df_para, np, pd):
-    def evaluate_object_detection(predictions_df, ground_truth_df, iou_thresholds=[0.5, 0.75]):
+    def evaluate_object_detection(predictions_df, ground_truth_df, iou_threshold=0.5):
         """
         Evaluate object detection performance using IoU-based matching.
 
@@ -233,7 +233,96 @@ def _(df_line, df_para, np, pd):
 
     # For LaTeX table in your paper:
     print("\nLaTeX Table:")
-    print(comparison.to_latex(index=False, float_format="%.4f"))
+    print(comparison.to_latex(index=False, float_format="%.2f"))
+    return
+
+
+@app.cell
+def _(df_line, df_para, np, pd):
+    def calculate_area_coverage(predictions_df, ground_truth_df):
+        """
+        Calculate the percentage of ground truth area covered by predictions.
+    
+        Parameters:
+        -----------
+        predictions_df : pd.DataFrame
+            DataFrame with columns: bbox_left, bbox_top, bbox_right, bbox_bottom
+        ground_truth_df : pd.DataFrame
+            DataFrame with columns: bbox_left, bbox_top, bbox_right, bbox_bottom
+    
+        Returns:
+        --------
+        dict : Dictionary containing coverage metrics
+            {
+                'coverage_percentage': float,  # % of GT area covered by predictions
+                'gt_total_area': int,          # Total GT area in pixels
+                'pred_total_area': int,        # Total prediction area in pixels
+                'intersection_area': int       # Overlapping area in pixels
+            }
+        """
+    
+        # Combine both dataframes to find overall dimensions
+        all_boxes = pd.concat([predictions_df, ground_truth_df])
+    
+        # Infer image dimensions from bounding boxes
+        image_width = int(np.ceil(all_boxes['bbox_right'].max()))
+        image_height = int(np.ceil(all_boxes['bbox_bottom'].max()))
+    
+        # Create binary masks
+        gt_mask = np.zeros((image_height, image_width), dtype=np.uint8)
+        pred_mask = np.zeros((image_height, image_width), dtype=np.uint8)
+    
+        # Fill ground truth mask
+        for _, row in ground_truth_df.iterrows():
+            top = int(row['bbox_top'])
+            bottom = int(row['bbox_bottom'])
+            left = int(row['bbox_left'])
+            right = int(row['bbox_right'])
+            gt_mask[top:bottom, left:right] = 1
+    
+        # Fill prediction mask
+        for _, row in predictions_df.iterrows():
+            top = int(row['bbox_top'])
+            bottom = int(row['bbox_bottom'])
+            left = int(row['bbox_left'])
+            right = int(row['bbox_right'])
+            pred_mask[top:bottom, left:right] = 1
+    
+        # Calculate areas
+        gt_total_area = np.sum(gt_mask)
+        pred_total_area = np.sum(pred_mask)
+    
+        # Calculate intersection
+        intersection_mask = gt_mask * pred_mask
+        intersection_area = np.sum(intersection_mask)
+    
+        # Calculate coverage percentage (intersection / GT area)
+        coverage_percentage = (intersection_area / gt_total_area * 100) if gt_total_area > 0 else 0
+    
+        return {
+            'coverage_percentage': coverage_percentage,
+            'gt_total_area': gt_total_area,
+            'pred_total_area': pred_total_area,
+            'intersection_area': intersection_area
+        }
+
+
+    # Usage (much simpler now):
+    coverage_1 = calculate_area_coverage(df_para, df_line)
+    coverage_2 = calculate_area_coverage(df_line, df_para)
+
+    print("\nArea Coverage Analysis:")
+    print(f"\nGT: Line, Pred: Para")
+    print(f"  Coverage: {coverage_1['coverage_percentage']:.2f}%")
+    print(f"  GT Area: {coverage_1['gt_total_area']} pixels")
+    print(f"  Pred Area: {coverage_1['pred_total_area']} pixels")
+    print(f"  Intersection: {coverage_1['intersection_area']} pixels")
+
+    print(f"\nGT: Para, Pred: Line")
+    print(f"  Coverage: {coverage_2['coverage_percentage']:.2f}%")
+    print(f"  GT Area: {coverage_2['gt_total_area']} pixels")
+    print(f"  Pred Area: {coverage_2['pred_total_area']} pixels")
+    print(f"  Intersection: {coverage_2['intersection_area']} pixels")
     return
 
 
