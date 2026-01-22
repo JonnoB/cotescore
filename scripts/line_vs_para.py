@@ -242,14 +242,14 @@ def _(df_line, df_para, np, pd):
     def calculate_area_coverage(predictions_df, ground_truth_df):
         """
         Calculate the percentage of ground truth area covered by predictions.
-    
+
         Parameters:
         -----------
         predictions_df : pd.DataFrame
             DataFrame with columns: bbox_left, bbox_top, bbox_right, bbox_bottom
         ground_truth_df : pd.DataFrame
             DataFrame with columns: bbox_left, bbox_top, bbox_right, bbox_bottom
-    
+
         Returns:
         --------
         dict : Dictionary containing coverage metrics
@@ -260,52 +260,51 @@ def _(df_line, df_para, np, pd):
                 'intersection_area': int       # Overlapping area in pixels
             }
         """
-    
+
         # Combine both dataframes to find overall dimensions
         all_boxes = pd.concat([predictions_df, ground_truth_df])
-    
+
         # Infer image dimensions from bounding boxes
-        image_width = int(np.ceil(all_boxes['bbox_right'].max()))
-        image_height = int(np.ceil(all_boxes['bbox_bottom'].max()))
-    
+        image_width = int(np.ceil(all_boxes["bbox_right"].max()))
+        image_height = int(np.ceil(all_boxes["bbox_bottom"].max()))
+
         # Create binary masks
         gt_mask = np.zeros((image_height, image_width), dtype=np.uint8)
         pred_mask = np.zeros((image_height, image_width), dtype=np.uint8)
-    
+
         # Fill ground truth mask
         for _, row in ground_truth_df.iterrows():
-            top = int(row['bbox_top'])
-            bottom = int(row['bbox_bottom'])
-            left = int(row['bbox_left'])
-            right = int(row['bbox_right'])
+            top = int(row["bbox_top"])
+            bottom = int(row["bbox_bottom"])
+            left = int(row["bbox_left"])
+            right = int(row["bbox_right"])
             gt_mask[top:bottom, left:right] = 1
-    
+
         # Fill prediction mask
         for _, row in predictions_df.iterrows():
-            top = int(row['bbox_top'])
-            bottom = int(row['bbox_bottom'])
-            left = int(row['bbox_left'])
-            right = int(row['bbox_right'])
+            top = int(row["bbox_top"])
+            bottom = int(row["bbox_bottom"])
+            left = int(row["bbox_left"])
+            right = int(row["bbox_right"])
             pred_mask[top:bottom, left:right] = 1
-    
+
         # Calculate areas
         gt_total_area = np.sum(gt_mask)
         pred_total_area = np.sum(pred_mask)
-    
+
         # Calculate intersection
         intersection_mask = gt_mask * pred_mask
         intersection_area = np.sum(intersection_mask)
-    
+
         # Calculate coverage percentage (intersection / GT area)
         coverage_percentage = (intersection_area / gt_total_area * 100) if gt_total_area > 0 else 0
-    
-        return {
-            'coverage_percentage': coverage_percentage,
-            'gt_total_area': gt_total_area,
-            'pred_total_area': pred_total_area,
-            'intersection_area': intersection_area
-        }
 
+        return {
+            "coverage_percentage": coverage_percentage,
+            "gt_total_area": gt_total_area,
+            "pred_total_area": pred_total_area,
+            "intersection_area": intersection_area,
+        }
 
     # Usage (much simpler now):
     coverage_1 = calculate_area_coverage(df_para, df_line)

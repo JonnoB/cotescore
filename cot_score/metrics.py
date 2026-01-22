@@ -632,9 +632,7 @@ def _normalize_box(box: InputBox, format_str: Optional[str] = None) -> BBox:
 
     # 2. Handle Sequence inputs (List/Tuple)
     if format_str is None:
-        raise ValueError(
-            "format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')"
-        )
+        raise ValueError("format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')")
 
     if len(box) < 4:
         raise ValueError(f"Input box must have at least 4 elements, got {len(box)}")
@@ -658,9 +656,7 @@ def _normalize_box(box: InputBox, format_str: Optional[str] = None) -> BBox:
         raise ValueError(f"Unknown box format: {format_str}")
 
 
-def _normalize_input(
-    regions: Iterable[InputBox], format_str: Optional[str] = None
-) -> List[BBox]:
+def _normalize_input(regions: Iterable[InputBox], format_str: Optional[str] = None) -> List[BBox]:
     """
     Normalize a list of regions to the standard dictionary format.
     """
