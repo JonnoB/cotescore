@@ -67,6 +67,7 @@ models/pretrained/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+!metrics_exploration.ipynb
 
 # Results and outputs
 results/

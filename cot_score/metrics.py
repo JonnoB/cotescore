@@ -13,13 +13,19 @@ NOTE: This is the SIMPLIFIED REFERENCE IMPLEMENTATION for easier debugging.
 Performance will be slower than the vectorized numpy version.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union, Tuple, Optional, Iterable
 
 # Type alias for bounding box dictionary
+# We now support Dict (legacy) and sequences (List/Tuple) via normalization
 BBox = Dict[str, Any]
+InputBox = Union[BBox, List[float], Tuple[float, ...]]
 
 
-def coverage(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
+def coverage(
+    predicted_regions: Iterable[InputBox],
+    ground_truth_regions: Iterable[InputBox],
+    box_format: Optional[str] = None,
+) -> float:
     """
     Calculate coverage metric between predicted and ground truth regions.
 
@@ -28,13 +34,17 @@ def coverage(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
     truth area. Higher values indicate better coverage.
 
     Args:
-        predicted_regions: List of predicted bounding boxes. Each box must be
-            a dict with keys: 'x', 'y', 'width', 'height' (all numeric).
-        ground_truth_regions: List of ground truth bounding boxes with same format.
+        predicted_regions: List of predicted bounding boxes.
+        ground_truth_regions: List of ground truth bounding boxes.
+        box_format: Format string for input boxes ('xywh', 'xyxy', 'cxcywh').
+                    If None, assumes canonical dictionary format or infers from keys.
 
     Returns:
         Coverage score in range [0.0, 1.0].
     """
+    # Normalize inputs
+    predicted_regions = _normalize_input(predicted_regions, box_format)
+    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
     if not ground_truth_regions:
         return 1.0 if not predicted_regions else 0.0
 
@@ -65,7 +75,11 @@ def coverage(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
     return covered_area / total_gt_area if total_gt_area > 0 else 0.0
 
 
-def overlap(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
+def overlap(
+    predicted_regions: Iterable[InputBox],
+    ground_truth_regions: Iterable[InputBox],
+    box_format: Optional[str] = None,
+) -> float:
     """
     Calculate overlap metric between predicted regions according to paper Equation 3.
 
@@ -85,10 +99,14 @@ def overlap(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> 
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
+        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
 
     Returns:
         Overlap score in range [0.0, 1.0].
     """
+    # Normalize inputs
+    predicted_regions = _normalize_input(predicted_regions, box_format)
+    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
     if len(predicted_regions) <= 1:
         return 0.0
 
@@ -212,7 +230,11 @@ def mean_iou(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
     return total_iou / len(ground_truth_regions)
 
 
-def trespass(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
+def trespass(
+    predicted_regions: Iterable[InputBox],
+    ground_truth_regions: Iterable[InputBox],
+    box_format: Optional[str] = None,
+) -> float:
     """
     Trespass measures how much of the ground truth is covered by a prediction
     that belongs to a different SSU (Ground Truth Region).
@@ -232,10 +254,14 @@ def trespass(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
+        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
 
     Returns:
         Trespass score in range [0.0, 1.0]. Normalized by maximum possible trespass.
     """
+    # Normalize inputs
+    predicted_regions = _normalize_input(predicted_regions, box_format)
+    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
     n = len(predicted_regions)
     m = len(ground_truth_regions)
 
@@ -303,10 +329,11 @@ def trespass(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
 
 
 def excess(
-    predicted_regions: List[BBox],
-    ground_truth_regions: List[BBox],
+    predicted_regions: Iterable[InputBox],
+    ground_truth_regions: Iterable[InputBox],
     image_width: float,
     image_height: float,
+    box_format: Optional[str] = None,
 ) -> float:
     """
     Excess measures the amount of area covered by predictions that is not part
@@ -322,11 +349,15 @@ def excess(
         ground_truth_regions: List of ground truth bounding boxes.
         image_width: Width of the image.
         image_height: Height of the image.
+        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
 
     Returns:
         Excess score in range [0.0, 1.0]. 0 means predictions don't extend into
         white space, 1 means predictions cover all white space.
     """
+    # Normalize inputs
+    predicted_regions = _normalize_input(predicted_regions, box_format)
+    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
     if not predicted_regions:
         return 0.0
 
@@ -385,19 +416,20 @@ def excess(
 
 
 def cot_score(
-    predicted_regions: List[BBox],
-    ground_truth_regions: List[BBox],
+    predicted_regions: Iterable[InputBox],
+    ground_truth_regions: Iterable[InputBox],
     image_width: float,
     image_height: float,
     weight_coverage: float = 1.0,
     weight_overlap: float = 1.0,
     weight_trespass: float = 1.0,
+    box_format: Optional[str] = None,
 ) -> float:
     """
     Calculate the overall COT (Coverage, Overlap, Trespass) score (Equation 14).
 
     The COT score combines the three core metrics to provide a single quality measure
-    for document layout predictions. From the paper:
+    for document layout analysis. From the paper:
 
     COT score = C - O - T
 
@@ -422,6 +454,7 @@ def cot_score(
         weight_coverage: Weight for coverage component (default: 1.0).
         weight_overlap: Weight for overlap component (default: 1.0).
         weight_trespass: Weight for trespass component (default: 1.0).
+        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
 
     Returns:
         COT score. Range is typically [-1.0, 1.0] with equal weights.
@@ -429,23 +462,18 @@ def cot_score(
         - 0.0 = no predictions
         - -1.0 = maximum error
     """
+    # Normalize inputs
+    predicted_regions = _normalize_input(predicted_regions, box_format)
+    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
     n = len(predicted_regions)
-
-    # Calculate Coverage (always computed)
     C = coverage(predicted_regions, ground_truth_regions)
-
-    # Calculate Trespass (handles its own edge cases, e.g. need m > 1)
     T = trespass(predicted_regions, ground_truth_regions)
 
-    # For n <= 1, Overlap is impossible (always 0)
     if n <= 1:
         O = 0.0
     else:
         O = overlap(predicted_regions, ground_truth_regions)
-
-    # Compute weighted COT score
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
-
     return cot
 
 
@@ -565,3 +593,78 @@ __all__ = [
     "excess",
     "cot_score",
 ]
+
+
+def _normalize_box(box: InputBox, format_str: Optional[str] = None) -> BBox:
+    """
+    Normalize an input box to the standard {'x', 'y', 'width', 'height'} dictionary format.
+
+    Args:
+        box: Input bounding box. Can be:
+             - Dict with keys 'x', 'y', 'width', 'height' (canonical)
+             - Dict with keys 'xmin', 'ymin', 'xmax', 'ymax' (auto-detected as xyxy)
+             - List/Tuple of 4 numbers: [a, b, c, d]
+        format_str: Format string describing the input box structure. Required for List/Tuple inputs.
+                    Supported formats:
+                    - 'xywh': [x, y, width, height]
+                    - 'xyxy': [xmin, ymin, xmax, ymax]
+                    - 'cxcywh': [center_x, center_y, width, height]
+                    If None, assumes input is already a canonical dictionary or attempts to infer from dict keys.
+
+    Returns:
+        Dict with 'x', 'y', 'width', 'height'.
+    """
+    # 1. Handle Dictionary inputs (Pass-through or simple conversion)
+    if isinstance(box, dict):
+        # Canonical format
+        if "x" in box and "y" in box and "width" in box and "height" in box:
+            return box
+        # Explicit XYXY dict keys
+        if "xmin" in box and "ymin" in box and "xmax" in box and "ymax" in box:
+            return {
+                "x": box["xmin"],
+                "y": box["ymin"],
+                "width": box["xmax"] - box["xmin"],
+                "height": box["ymax"] - box["ymin"],
+            }
+        # If we have object-like access (unlikely with simple dict, but for robustness)
+        return box
+
+    # 2. Handle Sequence inputs (List/Tuple)
+    if format_str is None:
+        raise ValueError(
+            "format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')"
+        )
+
+    if len(box) < 4:
+        raise ValueError(f"Input box must have at least 4 elements, got {len(box)}")
+
+    a, b, c, d = float(box[0]), float(box[1]), float(box[2]), float(box[3])
+
+    if format_str.lower() == "xywh":
+        return {"x": a, "y": b, "width": c, "height": d}
+
+    elif format_str.lower() == "xyxy":
+        # a=xmin, b=ymin, c=xmax, d=ymax
+        return {"x": a, "y": b, "width": c - a, "height": d - b}
+
+    elif format_str.lower() == "cxcywh":
+        # a=cx, b=cy, c=w, d=h
+        # x = cx - w/2
+        # y = cy - h/2
+        return {"x": a - c / 2, "y": b - d / 2, "width": c, "height": d}
+
+    else:
+        raise ValueError(f"Unknown box format: {format_str}")
+
+
+def _normalize_input(
+    regions: Iterable[InputBox], format_str: Optional[str] = None
+) -> List[BBox]:
+    """
+    Normalize a list of regions to the standard dictionary format.
+    """
+    if not regions:
+        return []
+
+    return [_normalize_box(box, format_str) for box in regions]
