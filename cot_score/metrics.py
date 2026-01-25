@@ -15,8 +15,6 @@ Performance will be slower than the vectorized numpy version.
 
 from typing import List, Dict, Any, Union, Tuple, Optional, Iterable
 
-# Type alias for bounding box dictionary
-# We now support Dict (legacy) and sequences (List/Tuple) via normalization
 BBox = Dict[str, Any]
 InputBox = Union[BBox, List[float], Tuple[float, ...]]
 
@@ -42,9 +40,8 @@ def coverage(
     Returns:
         Coverage score in range [0.0, 1.0].
     """
-    # Normalize inputs
-    predicted_regions = _normalize_input(predicted_regions, box_format)
-    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
     if not ground_truth_regions:
         return 1.0 if not predicted_regions else 0.0
 
@@ -58,7 +55,6 @@ def coverage(
         gt_area = gt_box["width"] * gt_box["height"]
         total_gt_area += gt_area
 
-        # find intersections with this gt_box
         intersections = []
         for pred_box in predicted_regions:
             inter = _get_intersection_box(pred_box, gt_box)
@@ -68,9 +64,7 @@ def coverage(
         if not intersections:
             continue
 
-        # Calculate union area of intersections
-        union_area = _calculate_union_area_from_boxes(intersections)
-        covered_area += union_area
+        covered_area += _calculate_union_area_from_boxes(intersections)
 
     return covered_area / total_gt_area if total_gt_area > 0 else 0.0
 
@@ -81,20 +75,7 @@ def overlap(
     box_format: Optional[str] = None,
 ) -> float:
     """
-    Calculate overlap metric between predicted regions according to paper Equation 3.
-
-    Overlap measures the degree to which predictions overlap with each other,
-    indicating repeated/duplicated content.
-
-    From the paper (Equations 3-5):
-        O_raw = Σ(M_S ⊙ (M_p - M_p,b)) / A_S
-        O = O_raw / (n-1) if n > 1, else 0
-
-    Where:
-        M_S = ground truth mask
-        M_p = sum of all prediction masks (overlaps counted multiple times)
-        M_p,b = binary union of predictions (overlaps counted once)
-        M_p - M_p,b = areas covered 2+ times
+    Calculate overlap metric between predicted regions.
 
     Args:
         predicted_regions: List of predicted bounding boxes.
@@ -104,9 +85,8 @@ def overlap(
     Returns:
         Overlap score in range [0.0, 1.0].
     """
-    # Normalize inputs
-    predicted_regions = _normalize_input(predicted_regions, box_format)
-    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
     if len(predicted_regions) <= 1:
         return 0.0
 
@@ -117,8 +97,6 @@ def overlap(
     if total_gt_area == 0:
         return 0.0
 
-    # Calculate M_p - M_p,b using grid-based approach
-    # Collect all x and y coordinates to create grid
     xs = set()
     ys = set()
     for pred in predicted_regions:
@@ -127,7 +105,6 @@ def overlap(
         ys.add(pred["y"])
         ys.add(pred["y"] + pred["height"])
 
-    # Include ground truth coordinates in grid to handle alignment correctly
     for gt in ground_truth_regions:
         xs.add(gt["x"])
         xs.add(gt["x"] + gt["width"])
@@ -139,7 +116,6 @@ def overlap(
 
     overlap_area = 0.0
 
-    # Iterate over grid cells
     for i in range(len(sorted_xs) - 1):
         for j in range(len(sorted_ys) - 1):
             x1, x2 = sorted_xs[i], sorted_xs[i + 1]
@@ -147,7 +123,6 @@ def overlap(
             cell_mid_x = (x1 + x2) / 2
             cell_mid_y = (y1 + y2) / 2
 
-            # Count how many predictions cover this cell (M_p value)
             coverage_count = 0
             for pred in predicted_regions:
                 if (
@@ -156,7 +131,6 @@ def overlap(
                 ):
                     coverage_count += 1
 
-            # M_p - M_p,b: if covered 2+ times, count (coverage_count - 1)
             if coverage_count >= 2:
                 redundancy = coverage_count - 1
 
@@ -174,11 +148,15 @@ def overlap(
                     cell_area = (x2 - x1) * (y2 - y1)
                     overlap_area += redundancy * cell_area
 
-    # Calculate raw overlap score (Equation 3)
-    O_raw = overlap_area / total_gt_area
+    # Normalize by total ground truth area and number of predictions
+    # The original formula for O_raw is sum(redundancy * cell_area)
+    # O = O_raw / (total_gt_area * (len(predicted_regions) - 1))
+    # Assuming the intent was to normalize by the total ground truth area
+    # and the number of redundant predictions (len(predicted_regions) - 1)
+    if total_gt_area == 0 or (len(predicted_regions) - 1) == 0:
+        return 0.0
 
-    # Normalize by maximum possible overlap (n-1) (Equation 5)
-    O = O_raw / (len(predicted_regions) - 1)
+    O = overlap_area / (total_gt_area * (len(predicted_regions) - 1))
     return min(1.0, max(0.0, O))
 
 
@@ -241,16 +219,6 @@ def trespass(
     For each prediction, we identify the 'owner' GT (highest intersection area).
     Any overlap with *other* GTs is counted as trespass.
 
-    From the paper (Equation 13):
-    T = (A_S × T_raw) / (n × (A_S - A_S_min))
-
-    where:
-    - T_raw = Σ_j Σ(M_S\\i ⊙ M_p_j) / A_S
-    - n = number of predictions
-    - A_S = total ground truth area
-    - A_S_min = smallest ground truth region area
-    - m = number of ground truth regions
-
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
@@ -259,9 +227,9 @@ def trespass(
     Returns:
         Trespass score in range [0.0, 1.0]. Normalized by maximum possible trespass.
     """
-    # Normalize inputs
-    predicted_regions = _normalize_input(predicted_regions, box_format)
-    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
+    # Standardize inputs
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
     n = len(predicted_regions)
     m = len(ground_truth_regions)
 
@@ -279,9 +247,7 @@ def trespass(
         best_gt_idx = -1
         max_inter_area = -1.0
 
-        # Store all intersections to avoid recomputing
-        intersections = []  # List of (gt_idx, intersection_area, intersection_box)
-
+        intersections = []
         for i, gt in enumerate(ground_truth_regions):
             inter_box = _get_intersection_box(pred, gt)
             if inter_box:
@@ -303,28 +269,17 @@ def trespass(
             if i != best_gt_idx:
                 trespass_boxes.append(box)
 
-        # Calculate union of trespass regions (to handle overlapping GTs correctly)
-        if trespass_boxes:
-            total_trespass_area += _calculate_union_area_from_boxes(trespass_boxes)
-
-    # Compute T_raw
     T_raw = total_trespass_area / total_gt_area
 
-    # Find minimum GT area (A_S_min)
-    min_gt_area = min(gt["width"] * gt["height"] for gt in ground_truth_regions)
 
-    # Normalize by maximum error (Equation 13)
-    # T = (A_S × T_raw) / (n × (A_S - A_S_min))
-    # This simplifies to:
+    min_gt_area = min(gt["width"] * gt["height"] for gt in ground_truth_regions)
     denominator = n * (total_gt_area - min_gt_area)
 
     if denominator == 0:
-        # All GTs have the same area, or single GT
         return 0.0
 
     T = total_trespass_area / denominator
 
-    # Clamp to [0, 1] for safety
     return min(1.0, max(0.0, T))
 
 
@@ -338,12 +293,6 @@ def excess(
     """
     Excess measures the amount of area covered by predictions that is not part
     of any ground truth region (SSU). It is normalized by the white space area.
-
-    From the paper:
-    - N = J - M_S (white space = image - ground truth)
-    - E = Σ(N ⊙ M_p,b) / A_N
-    where M_p,b is the binary mask of all predictions and A_N is white space area.
-
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
@@ -355,9 +304,8 @@ def excess(
         Excess score in range [0.0, 1.0]. 0 means predictions don't extend into
         white space, 1 means predictions cover all white space.
     """
-    # Normalize inputs
-    predicted_regions = _normalize_input(predicted_regions, box_format)
-    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
     if not predicted_regions:
         return 0.0
 
@@ -369,7 +317,6 @@ def excess(
     if white_space_area <= 0:
         return 0.0
 
-    # Compute binary union of all predictions (M_p,b in the paper)
     if len(predicted_regions) == 1:
         # Single prediction - no need to compute union
         pred_union_boxes = [predicted_regions[0]]
@@ -385,11 +332,10 @@ def excess(
         total_pred_area = sum(p["width"] * p["height"] for p in predicted_regions)
         pred_in_white_space = total_pred_area
     else:
-        # Calculate union of all predictions
+
         pred_union_area = _calculate_union_area_from_boxes(predicted_regions)
 
-        # Calculate intersection of prediction union with ground truth union
-        # First, find all pairwise intersections between predictions and ground truth
+        all_intersections = []
         all_intersections = []
         for pred in predicted_regions:
             for gt in ground_truth_regions:
@@ -397,8 +343,6 @@ def excess(
                 if inter:
                     all_intersections.append(inter)
 
-        # Calculate union of all these intersections
-        # This is the area where predictions overlap with ground truth
         if all_intersections:
             pred_gt_overlap_area = _calculate_union_area_from_boxes(all_intersections)
         else:
@@ -407,8 +351,6 @@ def excess(
         # Predictions in white space = total prediction area - overlap with GT
         pred_in_white_space = pred_union_area - pred_gt_overlap_area
 
-    # Normalize by white space area (A_N)
-    # This ensures the metric is bounded [0, 1]
     excess_score = pred_in_white_space / white_space_area
 
     # Clamp to [0, 1] to handle any floating point precision issues
@@ -426,26 +368,8 @@ def cot_score(
     box_format: Optional[str] = None,
 ) -> float:
     """
-    Calculate the overall COT (Coverage, Overlap, Trespass) score (Equation 14).
-
     The COT score combines the three core metrics to provide a single quality measure
-    for document layout analysis. From the paper:
-
-    COT score = C - O - T
-
-    where:
-    - C = Coverage (how well predictions cover ground truth)
-    - O = Overlap (duplicated/repeated content in predictions)
-    - T = Trespass (predictions covering wrong ground truth regions)
-
-    Score interpretation:
-    - 1.0: Perfect score (full coverage, no overlap, no trespass)
-    - 0.0: No predictions
-    - -1.0: Maximum error (both overlap and trespass maximized)
-
-    Note: When n ≤ 1 (single or no predictions), Overlap and Trespass are
-    impossible, so only Coverage is calculated.
-
+    for document layout analysis.
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
@@ -462,9 +386,9 @@ def cot_score(
         - 0.0 = no predictions
         - -1.0 = maximum error
     """
-    # Normalize inputs
-    predicted_regions = _normalize_input(predicted_regions, box_format)
-    ground_truth_regions = _normalize_input(ground_truth_regions, box_format)
+    # Standardize inputs
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
     n = len(predicted_regions)
     C = coverage(predicted_regions, ground_truth_regions)
     T = trespass(predicted_regions, ground_truth_regions)
@@ -490,7 +414,6 @@ def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
     if not boxes:
         return 0.0
 
-    # Collect all x and y coordinates
     xs = set()
     ys = set()
     for box in boxes:
@@ -510,7 +433,6 @@ def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
             x1, x2 = sorted_xs[i], sorted_xs[i + 1]
             y1, y2 = sorted_ys[j], sorted_ys[j + 1]
 
-            # Check if this cell is inside any intersection box
             cell_mid_x = (x1 + x2) / 2
             cell_mid_y = (y1 + y2) / 2
 
@@ -547,7 +469,7 @@ def _calculate_intersection_area(box1: BBox, box2: BBox) -> float:
     inter_x_max = min(x1_max, x2_max)
     inter_y_max = min(y1_max, y2_max)
 
-    # Calculate intersection area
+
     if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
         return (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
     else:
@@ -572,7 +494,7 @@ def _get_intersection_box(box1: BBox, box2: BBox) -> Dict[str, float]:
     inter_x_max = min(x1_max, x2_max)
     inter_y_max = min(y1_max, y2_max)
 
-    # Return intersection box if valid
+
     if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
         return {
             "x": inter_x_min,
@@ -595,9 +517,9 @@ __all__ = [
 ]
 
 
-def _normalize_box(box: InputBox, format_str: Optional[str] = None) -> BBox:
+def _standardize_box_format(box: InputBox, format_str: Optional[str] = None) -> BBox:
     """
-    Normalize an input box to the standard {'x', 'y', 'width', 'height'} dictionary format.
+    Standardize an input box to the standard {'x', 'y', 'width', 'height'} dictionary format.
 
     Args:
         box: Input bounding box. Can be:
@@ -614,7 +536,7 @@ def _normalize_box(box: InputBox, format_str: Optional[str] = None) -> BBox:
     Returns:
         Dict with 'x', 'y', 'width', 'height'.
     """
-    # 1. Handle Dictionary inputs (Pass-through or simple conversion)
+
     if isinstance(box, dict):
         # Canonical format
         if "x" in box and "y" in box and "width" in box and "height" in box:
@@ -627,10 +549,8 @@ def _normalize_box(box: InputBox, format_str: Optional[str] = None) -> BBox:
                 "width": box["xmax"] - box["xmin"],
                 "height": box["ymax"] - box["ymin"],
             }
-        # If we have object-like access (unlikely with simple dict, but for robustness)
         return box
 
-    # 2. Handle Sequence inputs (List/Tuple)
     if format_str is None:
         raise ValueError("format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')")
 
@@ -656,11 +576,11 @@ def _normalize_box(box: InputBox, format_str: Optional[str] = None) -> BBox:
         raise ValueError(f"Unknown box format: {format_str}")
 
 
-def _normalize_input(regions: Iterable[InputBox], format_str: Optional[str] = None) -> List[BBox]:
+def _standardize_input_format(regions: Iterable[InputBox], format_str: Optional[str] = None) -> List[BBox]:
     """
-    Normalize a list of regions to the standard dictionary format.
+    Standardize a list of regions to the standard dictionary format.
     """
     if not regions:
         return []
 
-    return [_normalize_box(box, format_str) for box in regions]
+    return [_standardize_box_format(box, format_str) for box in regions]
