@@ -15,7 +15,7 @@ import numpy as np
 from tqdm import tqdm
 
 from cot_score.dataset import NCSEDataset
-from cot_score.metrics import coverage, overlap, mean_iou, trespass, cot_score
+from cot_score.metrics import coverage, overlap, trespass, excess, cote_score, mean_iou
 from cot_score.map_metric import MAPMetric
 from PIL import Image
 
@@ -169,9 +169,7 @@ class BenchmarkRunner:
                 elif metric_name == "trespass":
                     score = trespass(predictions, ground_truth, image_width, image_height)
                 elif metric_name == "cot_score":
-                    score = cot_score(predictions, ground_truth, image_width, image_height)[
-                        0
-                    ]  # Unpack tuple
+                    score = cot_score(predictions, ground_truth, image_width, image_height)[0]  # Unpack tuple
                 else:
                     logger.warning(f"Unknown per-image metric: {metric_name}")
                     score = 0.0

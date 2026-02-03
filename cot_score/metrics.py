@@ -69,7 +69,7 @@ def coverage(
 
     if return_raw:
         return float(covered_area), float(total_gt_area)
-
+    # Fraction of covered area
     return float(covered_area / total_gt_area)
 
 
@@ -321,7 +321,7 @@ def excess(
     return min(1.0, max(0.0, float(e_val)))
 
 
-def cot_score(
+def cote_score(
     predicted_regions: Iterable[InputBox],
     ground_truth_regions: Iterable[InputBox],
     image_width: int,
@@ -330,10 +330,9 @@ def cot_score(
     weight_overlap: float = 1.0,
     weight_trespass: float = 1.0,
     box_format: Optional[str] = None,
-    return_raw: bool = False,
-) -> Tuple[float, float, float, float]:
+) -> Tuple[float, float, float, float, float]:
     """
-    The COT score.
+    The COTe score decomposition.
     """
     # Standardize inputs
     predicted_regions = _standardize_input_format(predicted_regions, box_format)
@@ -349,7 +348,7 @@ def cot_score(
         O = overlap(predicted_regions, ground_truth_regions, image_width, image_height)
 
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
-    return (cot, C, O, T)
+    return (cot, C, O, T, float(E))
 
 
 # =============================================================================
