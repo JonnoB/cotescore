@@ -277,11 +277,13 @@ def main():
 
         metrics = {
             "mean_iou": mean_iou(predictions, ground_truth),
-            "coverage": coverage(predictions, ground_truth),
-            "overlap": overlap(predictions, ground_truth),
-            "trespass": trespass(predictions, ground_truth),
+            "coverage": coverage(predictions, ground_truth, image_width, image_height),
+            "overlap": overlap(predictions, ground_truth, image_width, image_height),
+            "trespass": trespass(predictions, ground_truth, image_width, image_height),
             "excess": excess(predictions, ground_truth, image_width, image_height),
-            "cot_score": cot_score(predictions, ground_truth, image_width, image_height),
+            "cot_score": cot_score(predictions, ground_truth, image_width, image_height)[
+                0
+            ],  # Unpack tuple
         }
 
         print(f"  GT: {len(ground_truth)}, Preds: {len(predictions)}")

@@ -163,13 +163,15 @@ class BenchmarkRunner:
                 elif metric_name == "mean_iou":
                     score = mean_iou(predictions, ground_truth)
                 elif metric_name == "coverage":
-                    score = coverage(predictions, ground_truth)
+                    score = coverage(predictions, ground_truth, image_width, image_height)
                 elif metric_name == "overlap":
-                    score = overlap(predictions, ground_truth)
+                    score = overlap(predictions, ground_truth, image_width, image_height)
                 elif metric_name == "trespass":
-                    score = trespass(predictions, ground_truth)
+                    score = trespass(predictions, ground_truth, image_width, image_height)
                 elif metric_name == "cot_score":
-                    score = cot_score(predictions, ground_truth, image_width, image_height)
+                    score = cot_score(predictions, ground_truth, image_width, image_height)[
+                        0
+                    ]  # Unpack tuple
                 else:
                     logger.warning(f"Unknown per-image metric: {metric_name}")
                     score = 0.0
