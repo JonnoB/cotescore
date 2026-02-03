@@ -125,7 +125,7 @@ def benchmark_coverage(
 
         # Benchmark vectorized implementation
         start = time.perf_counter()
-        result_vectorized = metrics.coverage(pred, gt)
+        result_vectorized = metrics.coverage(pred, gt, 1000, 1000)
         times_vectorized.append(time.perf_counter() - start)
 
         # Verify results match (within floating point tolerance)
@@ -166,7 +166,7 @@ def benchmark_overlap(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[f
 
         # Benchmark vectorized implementation
         start = time.perf_counter()
-        result_vectorized = metrics.overlap(pred, gt)
+        result_vectorized = metrics.overlap(pred, gt, 1000, 1000)
         times_vectorized.append(time.perf_counter() - start)
 
         # Verify results match (within floating point tolerance)
