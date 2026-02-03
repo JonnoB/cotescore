@@ -1,5 +1,5 @@
 """
-Document layout analysis metrics (Simplified Implementation).
+Document layout analysis metrics
 
 This module provides metrics for evaluating document layout analysis predictions:
 - coverage: Measures how well predictions cover ground truth regions
@@ -8,12 +8,10 @@ This module provides metrics for evaluating document layout analysis predictions
 - mean_iou: Average IoU across all ground truth boxes
 - trespass: Measures false positive coverage on wrong ground truth regions
 - excess: Measures coverage of background (non-ground truth) area
-
-NOTE: This is the SIMPLIFIED REFERENCE IMPLEMENTATION for easier debugging.
-Performance will be slower than the vectorized numpy version.
 """
 
 from typing import List, Dict, Any, Union, Tuple, Optional, Iterable
+import numpy as np
 
 BBox = Dict[str, Any]
 InputBox = Union[BBox, List[float], Tuple[float, ...]]
@@ -22,57 +20,71 @@ InputBox = Union[BBox, List[float], Tuple[float, ...]]
 def coverage(
     predicted_regions: Iterable[InputBox],
     ground_truth_regions: Iterable[InputBox],
+    image_width: int,
+    image_height: int,
     box_format: Optional[str] = None,
+    return_raw: bool = False,
 ) -> float:
     """
     Calculate coverage metric between predicted and ground truth regions.
 
     Coverage measures how well predicted regions cover the ground truth regions.
     It is the ratio of ground truth area covered by predictions to total ground
-    truth area. Higher values indicate better coverage.
+    truth area.
 
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
-        box_format: Format string for input boxes ('xywh', 'xyxy', 'cxcywh').
-                    If None, assumes canonical dictionary format or infers from keys.
+        image_width: Width of the image (required for mask creation).
+        image_height: Height of the image (required for mask creation).
+        box_format: Format string for input boxes.
+        return_raw: If True, return (covered_area, total_gt_area) tuple.
 
     Returns:
-        Coverage score in range [0.0, 1.0].
+        Coverage score [0.0, 1.0] or raw values.
     """
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(
+        predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(
+        ground_truth_regions, box_format)
+
     if not ground_truth_regions:
-        return 1.0 if not predicted_regions else 0.0
+        val = 1.0 if not predicted_regions else 0.0
+        return (0.0, 0.0) if return_raw else val
 
     if not predicted_regions:
-        return 0.0
+        total_gt_area = sum(gt["width"] * gt["height"]
+                            for gt in ground_truth_regions)
+        return (0.0, total_gt_area) if return_raw else 0.0
 
-    total_gt_area = 0.0
-    covered_area = 0.0
+    # Vectorized implementation
+    # M_S (binary)
+    m_s = _create_mask(ground_truth_regions,
+                       (image_height, image_width), binary=True)
+    # M_p (binary union for coverage)
+    m_p_b = _create_mask(
+        predicted_regions, (image_height, image_width), binary=True)
 
-    for gt_box in ground_truth_regions:
-        gt_area = gt_box["width"] * gt_box["height"]
-        total_gt_area += gt_area
+    # Covered area = sum(M_S * M_p,b)
+    covered_area = np.sum(m_s * m_p_b)
+    total_gt_area = np.sum(m_s)
 
-        intersections = []
-        for pred_box in predicted_regions:
-            inter = _get_intersection_box(pred_box, gt_box)
-            if inter:
-                intersections.append(inter)
+    if total_gt_area == 0:
+        return (0.0, 0.0) if return_raw else 0.0
 
-        if not intersections:
-            continue
+    if return_raw:
+        return float(covered_area), float(total_gt_area)
 
-        covered_area += _calculate_union_area_from_boxes(intersections)
-
-    return covered_area / total_gt_area if total_gt_area > 0 else 0.0
+    return float(covered_area / total_gt_area)
 
 
 def overlap(
     predicted_regions: Iterable[InputBox],
     ground_truth_regions: Iterable[InputBox],
+    image_width: int,
+    image_height: int,
     box_format: Optional[str] = None,
+    return_raw: bool = False,
 ) -> float:
     """
     Calculate overlap metric between predicted regions.
@@ -80,84 +92,51 @@ def overlap(
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
-        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
+        image_width: Width of the image.
+        image_height: Height of the image.
+        box_format: Format string for inputs.
+        return_raw: If True, return (O_raw, normalization_factor)
 
     Returns:
-        Overlap score in range [0.0, 1.0].
+        Overlap score.
     """
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
-    if len(predicted_regions) <= 1:
-        return 0.0
+    predicted_regions = _standardize_input_format(
+        predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(
+        ground_truth_regions, box_format)
+
+    n = len(predicted_regions)
 
     if not ground_truth_regions:
-        return 0.0
+        return (0.0, 1.0) if return_raw else 0.0
 
-    total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
+    # M_S (binary)
+    m_s = _create_mask(ground_truth_regions,
+                       (image_height, image_width), binary=True)
+    total_gt_area = np.sum(m_s)
+
     if total_gt_area == 0:
-        return 0.0
+        return (0.0, 1.0) if return_raw else 0.0
 
-    xs = set()
-    ys = set()
-    for pred in predicted_regions:
-        xs.add(pred["x"])
-        xs.add(pred["x"] + pred["width"])
-        ys.add(pred["y"])
-        ys.add(pred["y"] + pred["height"])
+    # M_p (count) and M_p,b (binary)
+    m_p = _create_mask(predicted_regions,
+                       (image_height, image_width), binary=False)
+    m_p_b = (m_p > 0).astype(np.int32)
 
-    for gt in ground_truth_regions:
-        xs.add(gt["x"])
-        xs.add(gt["x"] + gt["width"])
-        ys.add(gt["y"])
-        ys.add(gt["y"] + gt["height"])
+    # O_raw = Sum(M_S * (M_p - M_p,b)) / A_S
+    # We calculate the numerator first: Sum(M_S * (M_p - M_p,b))
+    redundancy_mask = m_p - m_p_b
+    weighted_redundancy = m_s * redundancy_mask
+    overlap_area = np.sum(weighted_redundancy)
 
-    sorted_xs = sorted(list(xs))
-    sorted_ys = sorted(list(ys))
+    # O_raw
+    o_raw = overlap_area / total_gt_area
 
-    overlap_area = 0.0
+    # Final O = O_raw / (n - 1)
+    if return_raw:
+        return float(o_raw), float(n - 1)
 
-    for i in range(len(sorted_xs) - 1):
-        for j in range(len(sorted_ys) - 1):
-            x1, x2 = sorted_xs[i], sorted_xs[i + 1]
-            y1, y2 = sorted_ys[j], sorted_ys[j + 1]
-            cell_mid_x = (x1 + x2) / 2
-            cell_mid_y = (y1 + y2) / 2
-
-            coverage_count = 0
-            for pred in predicted_regions:
-                if (
-                    pred["x"] <= cell_mid_x < pred["x"] + pred["width"]
-                    and pred["y"] <= cell_mid_y < pred["y"] + pred["height"]
-                ):
-                    coverage_count += 1
-
-            if coverage_count >= 2:
-                redundancy = coverage_count - 1
-
-                # Check if this cell is within any ground truth region (M_S mask)
-                within_gt = False
-                for gt in ground_truth_regions:
-                    if (
-                        gt["x"] <= cell_mid_x < gt["x"] + gt["width"]
-                        and gt["y"] <= cell_mid_y < gt["y"] + gt["height"]
-                    ):
-                        within_gt = True
-                        break
-
-                if within_gt:
-                    cell_area = (x2 - x1) * (y2 - y1)
-                    overlap_area += redundancy * cell_area
-
-    # Normalize by total ground truth area and number of predictions
-    # The original formula for O_raw is sum(redundancy * cell_area)
-    # O = O_raw / (total_gt_area * (len(predicted_regions) - 1))
-    # Assuming the intent was to normalize by the total ground truth area
-    # and the number of redundant predictions (len(predicted_regions) - 1)
-    if total_gt_area == 0 or (len(predicted_regions) - 1) == 0:
-        return 0.0
-
-    O = overlap_area / (total_gt_area * (len(predicted_regions) - 1))
-    return min(1.0, max(0.0, O))
+    return min(1.0, max(0.0, float(o_raw / (n - 1))))
 
 
 def iou(box1: BBox, box2: BBox) -> float:
@@ -201,7 +180,8 @@ def mean_iou(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
         return 0.0
 
     total_iou = sum(
-        max((iou(pred_box, gt_box) for pred_box in predicted_regions), default=0.0)
+        max((iou(pred_box, gt_box)
+            for pred_box in predicted_regions), default=0.0)
         for gt_box in ground_truth_regions
     )
 
@@ -211,43 +191,56 @@ def mean_iou(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
 def trespass(
     predicted_regions: Iterable[InputBox],
     ground_truth_regions: Iterable[InputBox],
+    image_width: int,
+    image_height: int,
     box_format: Optional[str] = None,
+    return_raw: bool = False,
 ) -> float:
     """
     Trespass measures how much of the ground truth is covered by a prediction
     that belongs to a different SSU (Ground Truth Region).
-    For each prediction, we identify the 'owner' GT (highest intersection area).
-    Any overlap with *other* GTs is counted as trespass.
 
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
-        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
+        image_width: Width of the image.
+        image_height: Height of the image.
+        box_format: Format string for inputs.
 
     Returns:
-        Trespass score in range [0.0, 1.0]. Normalized by maximum possible trespass.
+        Trespass score.
     """
-    # Standardize inputs
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(
+        predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(
+        ground_truth_regions, box_format)
+
     n = len(predicted_regions)
-    m = len(ground_truth_regions)
+    if n == 0 or len(ground_truth_regions) == 0:
+        return (0.0, 1.0) if return_raw else 0.0
 
-    if n == 0 or m <= 1:
-        return 0.0
-
-    total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
-    if total_gt_area == 0:
-        return 0.0
+    # To properly implement trespass, we identify the 'owner' GT for each prediction
+    # (the one with max intersection) and then sum the overlap with all *other* GTs.
+    # We use masks to calculate the union of trespass areas efficiently.
 
     total_trespass_area = 0.0
 
+    m_s = _create_mask(ground_truth_regions,
+                       (image_height, image_width), binary=True)
+    total_gt_area = np.sum(m_s)
+    if total_gt_area == 0:
+        return (0.0, 1.0) if return_raw else 0.0
+
+    min_gt_area = min(
+        gt["width"] * gt["height"] for gt in ground_truth_regions
+    )  # Approx using box area
+
     for pred in predicted_regions:
-        # 1. Find best matching GT ('owner')
+        # Find owner
         best_gt_idx = -1
         max_inter_area = -1.0
+        intersections = []  # (gt_idx, area, box)
 
-        intersections = []
         for i, gt in enumerate(ground_truth_regions):
             inter_box = _get_intersection_box(pred, gt)
             if inter_box:
@@ -258,27 +251,32 @@ def trespass(
                     best_gt_idx = i
 
         if best_gt_idx == -1:
-            # Prediction overlaps with NO ground truth.
-            # It doesn't belong to any SSU, so it can't trespass on a 'different' one.
-            # It is purely excess.
             continue
 
-        # 2. Sum overlap with all OTHER GTs
-        trespass_boxes = []
-        for i, area, box in intersections:
-            if i != best_gt_idx:
-                trespass_boxes.append(box)
+        # Trespass area for this pred = Intersection with ALL GTs - Intersection with Owner GT
+        # BUT: GTs might overlap each other.
+        # So we need Union(Intersection(pred, GT_j) for j != i).
+
+        trespass_boxes = [x[2] for x in intersections if x[0] != best_gt_idx]
+
+        if trespass_boxes:
+            # Here we can use mask for union area of trespass boxes!
+            # Create a mask for these boxes and sum it.
+            t_mask = _create_mask(
+                trespass_boxes, (image_height, image_width), binary=True)
+            total_trespass_area += np.sum(t_mask)
 
     T_raw = total_trespass_area / total_gt_area
-
-
-    min_gt_area = min(gt["width"] * gt["height"] for gt in ground_truth_regions)
     denominator = n * (total_gt_area - min_gt_area)
 
     if denominator == 0:
-        return 0.0
+        return (0.0, 1.0) if return_raw else 0.0  # Factor? Just return 0
 
     T = total_trespass_area / denominator
+
+    if return_raw:
+        # Rough mapping
+        return float(T_raw), float(denominator / total_gt_area)
 
     return min(1.0, max(0.0, T))
 
@@ -286,119 +284,95 @@ def trespass(
 def excess(
     predicted_regions: Iterable[InputBox],
     ground_truth_regions: Iterable[InputBox],
-    image_width: float,
-    image_height: float,
+    image_width: int,
+    image_height: int,
     box_format: Optional[str] = None,
+    return_raw: bool = False,
 ) -> float:
     """
     Excess measures the amount of area covered by predictions that is not part
     of any ground truth region (SSU). It is normalized by the white space area.
+
     Args:
         predicted_regions: List of predicted bounding boxes.
         ground_truth_regions: List of ground truth bounding boxes.
         image_width: Width of the image.
         image_height: Height of the image.
-        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
+        box_format: Format string for inputs.
 
     Returns:
-        Excess score in range [0.0, 1.0]. 0 means predictions don't extend into
-        white space, 1 means predictions cover all white space.
+        Excess score.
     """
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(
+        predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(
+        ground_truth_regions, box_format)
+
     if not predicted_regions:
-        return 0.0
+        return (0.0, 1.0) if return_raw else 0.0
 
-    image_area = image_width * image_height
-    total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
+    # Masks
+    m_s = _create_mask(ground_truth_regions,
+                       (image_height, image_width), binary=True)
+    m_p_b = _create_mask(
+        predicted_regions, (image_height, image_width), binary=True)
 
-    white_space_area = image_area - total_gt_area
+    total_image_area = image_width * image_height
+    total_gt_area = np.sum(m_s)
+    white_space_area = total_image_area - total_gt_area
 
     if white_space_area <= 0:
-        return 0.0
+        return (0.0, 1.0) if return_raw else 0.0
 
-    if len(predicted_regions) == 1:
-        # Single prediction - no need to compute union
-        pred_union_boxes = [predicted_regions[0]]
-    else:
-        # For multiple predictions, we need to compute their union
-        # We'll use the grid method similar to coverage
-        pred_union_boxes = predicted_regions  # We'll handle union in the calculation below
+    # N = White Space Mask = 1 - M_S
+    n_mask = 1 - m_s
 
-    # Calculate intersection of predictions with ground truth
-    # This gives us the area of predictions that's NOT in white space
-    if not ground_truth_regions:
-        # No ground truth means entire prediction area is in white space
-        total_pred_area = sum(p["width"] * p["height"] for p in predicted_regions)
-        pred_in_white_space = total_pred_area
-    else:
+    # E_raw = Sum(N * M_p,b) / A_N
+    # Intersection of whitespace and predictions
+    excess_area = np.sum(n_mask * m_p_b)
 
-        pred_union_area = _calculate_union_area_from_boxes(predicted_regions)
+    e_val = excess_area / white_space_area
 
-        all_intersections = []
-        all_intersections = []
-        for pred in predicted_regions:
-            for gt in ground_truth_regions:
-                inter = _get_intersection_box(pred, gt)
-                if inter:
-                    all_intersections.append(inter)
+    if return_raw:
+        return float(excess_area), float(white_space_area)
 
-        if all_intersections:
-            pred_gt_overlap_area = _calculate_union_area_from_boxes(all_intersections)
-        else:
-            pred_gt_overlap_area = 0.0
-
-        # Predictions in white space = total prediction area - overlap with GT
-        pred_in_white_space = pred_union_area - pred_gt_overlap_area
-
-    excess_score = pred_in_white_space / white_space_area
-
-    # Clamp to [0, 1] to handle any floating point precision issues
-    return min(1.0, max(0.0, excess_score))
+    return min(1.0, max(0.0, float(e_val)))
 
 
 def cot_score(
     predicted_regions: Iterable[InputBox],
     ground_truth_regions: Iterable[InputBox],
-    image_width: float,
-    image_height: float,
+    image_width: int,
+    image_height: int,
     weight_coverage: float = 1.0,
     weight_overlap: float = 1.0,
     weight_trespass: float = 1.0,
     box_format: Optional[str] = None,
-) -> float:
+    return_raw: bool = False,
+) -> Tuple[float, float, float, float]:
     """
-    The COT score combines the three core metrics to provide a single quality measure
-    for document layout analysis.
-    Args:
-        predicted_regions: List of predicted bounding boxes.
-        ground_truth_regions: List of ground truth bounding boxes.
-        image_width: Width of the image.
-        image_height: Height of the image.
-        weight_coverage: Weight for coverage component (default: 1.0).
-        weight_overlap: Weight for overlap component (default: 1.0).
-        weight_trespass: Weight for trespass component (default: 1.0).
-        box_format: Format string for inputs ('xywh', 'xyxy', 'cxcywh').
-
-    Returns:
-        COT score. Range is typically [-1.0, 1.0] with equal weights.
-        - 1.0 = perfect
-        - 0.0 = no predictions
-        - -1.0 = maximum error
+    The COT score.
     """
     # Standardize inputs
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(
+        predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(
+        ground_truth_regions, box_format)
     n = len(predicted_regions)
-    C = coverage(predicted_regions, ground_truth_regions)
-    T = trespass(predicted_regions, ground_truth_regions)
+
+    C = coverage(predicted_regions, ground_truth_regions,
+                 image_width, image_height)
+    T = trespass(predicted_regions, ground_truth_regions,
+                 image_width, image_height)
 
     if n <= 1:
         O = 0.0
     else:
-        O = overlap(predicted_regions, ground_truth_regions)
+        O = overlap(predicted_regions, ground_truth_regions,
+                    image_width, image_height)
+
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
-    return cot
+    return (cot, C, O, T)
 
 
 # =============================================================================
@@ -469,7 +443,6 @@ def _calculate_intersection_area(box1: BBox, box2: BBox) -> float:
     inter_x_max = min(x1_max, x2_max)
     inter_y_max = min(y1_max, y2_max)
 
-
     if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
         return (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
     else:
@@ -493,7 +466,6 @@ def _get_intersection_box(box1: BBox, box2: BBox) -> Dict[str, float]:
     inter_y_min = max(y1_min, y2_min)
     inter_x_max = min(x1_max, x2_max)
     inter_y_max = min(y1_max, y2_max)
-
 
     if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
         return {
@@ -552,10 +524,12 @@ def _standardize_box_format(box: InputBox, format_str: Optional[str] = None) -> 
         return box
 
     if format_str is None:
-        raise ValueError("format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')")
+        raise ValueError(
+            "format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')")
 
     if len(box) < 4:
-        raise ValueError(f"Input box must have at least 4 elements, got {len(box)}")
+        raise ValueError(
+            f"Input box must have at least 4 elements, got {len(box)}")
 
     a, b, c, d = float(box[0]), float(box[1]), float(box[2]), float(box[3])
 
@@ -576,7 +550,9 @@ def _standardize_box_format(box: InputBox, format_str: Optional[str] = None) -> 
         raise ValueError(f"Unknown box format: {format_str}")
 
 
-def _standardize_input_format(regions: Iterable[InputBox], format_str: Optional[str] = None) -> List[BBox]:
+def _standardize_input_format(
+    regions: Iterable[InputBox], format_str: Optional[str] = None
+) -> List[BBox]:
     """
     Standardize a list of regions to the standard dictionary format.
     """
@@ -584,3 +560,37 @@ def _standardize_input_format(regions: Iterable[InputBox], format_str: Optional[
         return []
 
     return [_standardize_box_format(box, format_str) for box in regions]
+
+
+def _create_mask(
+    boxes: List[BBox], image_shape: Tuple[int, int], binary: bool = False
+) -> np.ndarray:
+    """
+    Create a 2D mask from a list of bounding boxes.
+
+    Args:
+        boxes: List of standardized bounding boxes (dictionaries with 'x', 'y', 'width', 'height').
+        image_shape: Tuple of (height, width).
+        binary: If True, returns a binary mask (1 if covered, 0 otherwise).
+                If False, returns a count mask (number of boxes covering each pixel).
+
+    Returns:
+        np.ndarray: 2D array of shape (height, width) with int32 dtype.
+    """
+    height, width = image_shape
+    mask = np.zeros((height, width), dtype=np.int32)
+
+    for box in boxes:
+        # Convert to integer coordinates with clamping
+        x1 = max(0, int(round(box["x"])))
+        y1 = max(0, int(round(box["y"])))
+        x2 = min(width, int(round(box["x"] + box["width"])))
+        y2 = min(height, int(round(box["y"] + box["height"])))
+
+        if x2 > x1 and y2 > y1:
+            mask[y1:y2, x1:x2] += 1
+
+    if binary:
+        return (mask > 0).astype(np.int32)
+
+    return mask
