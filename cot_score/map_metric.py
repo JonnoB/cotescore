@@ -62,7 +62,6 @@ class MAPMetric:
             target_boxes.append([g["x"], g["y"], g["width"], g["height"]])
             target_labels.append(self._get_label_id(g["class"]))
 
-        # Create tensors
         import torch
 
         p_dict = {
