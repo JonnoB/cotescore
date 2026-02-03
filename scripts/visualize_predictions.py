@@ -281,7 +281,9 @@ def main():
             "overlap": overlap(predictions, ground_truth, image_width, image_height),
             "trespass": trespass(predictions, ground_truth, image_width, image_height),
             "excess": excess(predictions, ground_truth, image_width, image_height),
-            "cot_score": cot_score(predictions, ground_truth, image_width, image_height)[0],  # Unpack tuple
+            "cot_score": cot_score(predictions, ground_truth, image_width, image_height)[
+                0
+            ],  # Unpack tuple
         }
 
         print(f"  GT: {len(ground_truth)}, Preds: {len(predictions)}")

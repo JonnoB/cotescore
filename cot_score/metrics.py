@@ -43,27 +43,22 @@ def coverage(
     Returns:
         Coverage score [0.0, 1.0] or raw values.
     """
-    predicted_regions = _standardize_input_format(
-        predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(
-        ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
     if not ground_truth_regions:
         val = 1.0 if not predicted_regions else 0.0
         return (0.0, 0.0) if return_raw else val
 
     if not predicted_regions:
-        total_gt_area = sum(gt["width"] * gt["height"]
-                            for gt in ground_truth_regions)
+        total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
         return (0.0, total_gt_area) if return_raw else 0.0
 
     # Vectorized implementation
     # M_S (binary)
-    m_s = _create_mask(ground_truth_regions,
-                       (image_height, image_width), binary=True)
+    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
     # M_p (binary union for coverage)
-    m_p_b = _create_mask(
-        predicted_regions, (image_height, image_width), binary=True)
+    m_p_b = _create_mask(predicted_regions, (image_height, image_width), binary=True)
 
     # Covered area = sum(M_S * M_p,b)
     covered_area = np.sum(m_s * m_p_b)
@@ -100,10 +95,8 @@ def overlap(
     Returns:
         Overlap score.
     """
-    predicted_regions = _standardize_input_format(
-        predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(
-        ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
     n = len(predicted_regions)
 
@@ -111,16 +104,14 @@ def overlap(
         return (0.0, 1.0) if return_raw else 0.0
 
     # M_S (binary)
-    m_s = _create_mask(ground_truth_regions,
-                       (image_height, image_width), binary=True)
+    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
     total_gt_area = np.sum(m_s)
 
     if total_gt_area == 0:
         return (0.0, 1.0) if return_raw else 0.0
 
     # M_p (count) and M_p,b (binary)
-    m_p = _create_mask(predicted_regions,
-                       (image_height, image_width), binary=False)
+    m_p = _create_mask(predicted_regions, (image_height, image_width), binary=False)
     m_p_b = (m_p > 0).astype(np.int32)
 
     # O_raw = Sum(M_S * (M_p - M_p,b)) / A_S
@@ -180,8 +171,7 @@ def mean_iou(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
         return 0.0
 
     total_iou = sum(
-        max((iou(pred_box, gt_box)
-            for pred_box in predicted_regions), default=0.0)
+        max((iou(pred_box, gt_box) for pred_box in predicted_regions), default=0.0)
         for gt_box in ground_truth_regions
     )
 
@@ -210,10 +200,8 @@ def trespass(
     Returns:
         Trespass score.
     """
-    predicted_regions = _standardize_input_format(
-        predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(
-        ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
     n = len(predicted_regions)
     if n == 0 or len(ground_truth_regions) == 0:
@@ -225,8 +213,7 @@ def trespass(
 
     total_trespass_area = 0.0
 
-    m_s = _create_mask(ground_truth_regions,
-                       (image_height, image_width), binary=True)
+    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
     total_gt_area = np.sum(m_s)
     if total_gt_area == 0:
         return (0.0, 1.0) if return_raw else 0.0
@@ -262,8 +249,7 @@ def trespass(
         if trespass_boxes:
             # Here we can use mask for union area of trespass boxes!
             # Create a mask for these boxes and sum it.
-            t_mask = _create_mask(
-                trespass_boxes, (image_height, image_width), binary=True)
+            t_mask = _create_mask(trespass_boxes, (image_height, image_width), binary=True)
             total_trespass_area += np.sum(t_mask)
 
     T_raw = total_trespass_area / total_gt_area
@@ -303,19 +289,15 @@ def excess(
     Returns:
         Excess score.
     """
-    predicted_regions = _standardize_input_format(
-        predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(
-        ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
     if not predicted_regions:
         return (0.0, 1.0) if return_raw else 0.0
 
     # Masks
-    m_s = _create_mask(ground_truth_regions,
-                       (image_height, image_width), binary=True)
-    m_p_b = _create_mask(
-        predicted_regions, (image_height, image_width), binary=True)
+    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
+    m_p_b = _create_mask(predicted_regions, (image_height, image_width), binary=True)
 
     total_image_area = image_width * image_height
     total_gt_area = np.sum(m_s)
@@ -354,22 +336,17 @@ def cot_score(
     The COT score.
     """
     # Standardize inputs
-    predicted_regions = _standardize_input_format(
-        predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(
-        ground_truth_regions, box_format)
+    predicted_regions = _standardize_input_format(predicted_regions, box_format)
+    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
     n = len(predicted_regions)
 
-    C = coverage(predicted_regions, ground_truth_regions,
-                 image_width, image_height)
-    T = trespass(predicted_regions, ground_truth_regions,
-                 image_width, image_height)
+    C = coverage(predicted_regions, ground_truth_regions, image_width, image_height)
+    T = trespass(predicted_regions, ground_truth_regions, image_width, image_height)
 
     if n <= 1:
         O = 0.0
     else:
-        O = overlap(predicted_regions, ground_truth_regions,
-                    image_width, image_height)
+        O = overlap(predicted_regions, ground_truth_regions, image_width, image_height)
 
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
     return (cot, C, O, T)
@@ -524,12 +501,10 @@ def _standardize_box_format(box: InputBox, format_str: Optional[str] = None) -> 
         return box
 
     if format_str is None:
-        raise ValueError(
-            "format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')")
+        raise ValueError("format_str must be provided for list/tuple inputs (e.g. 'xywh', 'xyxy')")
 
     if len(box) < 4:
-        raise ValueError(
-            f"Input box must have at least 4 elements, got {len(box)}")
+        raise ValueError(f"Input box must have at least 4 elements, got {len(box)}")
 
     a, b, c, d = float(box[0]), float(box[1]), float(box[2]), float(box[3])
 
