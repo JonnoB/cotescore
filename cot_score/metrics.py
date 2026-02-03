@@ -192,10 +192,11 @@ def trespass(
 
     Args:
         predicted_regions: List of predicted bounding boxes.
-        ground_truth_regions: List of ground truth bounding boxes.
+        ground_truth_regions: List of ground truth bounding boxes, typically these will represent SSU.
         image_width: Width of the image.
         image_height: Height of the image.
         box_format: Format string for inputs.
+        return_raw: If True, return (T_raw, 1.0) tuple, else return T_raw.
 
     Returns:
         Trespass score.
@@ -207,64 +208,56 @@ def trespass(
     if n == 0 or len(ground_truth_regions) == 0:
         return (0.0, 1.0) if return_raw else 0.0
 
-    # To properly implement trespass, we identify the 'owner' GT for each prediction
-    # (the one with max intersection) and then sum the overlap with all *other* GTs.
-    # We use masks to calculate the union of trespass areas efficiently.
-
-    total_trespass_area = 0.0
-
+    # Calculate total GT area
     m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
     total_gt_area = np.sum(m_s)
     if total_gt_area == 0:
         return (0.0, 1.0) if return_raw else 0.0
 
-    min_gt_area = min(
-        gt["width"] * gt["height"] for gt in ground_truth_regions
-    )  # Approx using box area
+    # Create individual GT masks as these are used for each prediction
+    gt_masks = [_create_mask([gt], (image_height, image_width), binary=True) 
+                for gt in ground_truth_regions]
+
+    total_trespass_area = 0.0
 
     for pred in predicted_regions:
-        # Find owner
+        # Create mask for this prediction
+        pred_mask = _create_mask([pred], (image_height, image_width), binary=True)
+        
+        # Find owner GT (max intersection)
         best_gt_idx = -1
-        max_inter_area = -1.0
-        intersections = []  # (gt_idx, area, box)
-
-        for i, gt in enumerate(ground_truth_regions):
-            inter_box = _get_intersection_box(pred, gt)
-            if inter_box:
-                area = inter_box["width"] * inter_box["height"]
-                intersections.append((i, area, inter_box))
-                if area > max_inter_area:
-                    max_inter_area = area
-                    best_gt_idx = i
-
+        max_inter_area = 0.0
+        
+        for i, gt_mask in enumerate(gt_masks):
+            # The element wise product of the pred and gt aka the intersection
+            inter_area = np.sum(pred_mask & gt_mask)
+            if inter_area > max_inter_area:
+                max_inter_area = inter_area
+                best_gt_idx = i
+        
         if best_gt_idx == -1:
+            # No intersection with any GT - NO trespass (just skip)
             continue
+        
+        # Create mask of all GTs EXCEPT the owner
+        m_s_excl_owner = np.zeros_like(m_s, dtype=bool)
+        for i, gt_mask in enumerate(gt_masks):
+            if i != best_gt_idx:
+                #creating the OR mask of all gt EXCEPT the owner
+                m_s_excl_owner |= gt_mask.astype(bool)
+        
+        # Trespass area = intersection of pred with non-owner GTs
+        trespass_area = np.sum(pred_mask & m_s_excl_owner)
+        total_trespass_area += trespass_area
 
-        # Trespass area for this pred = Intersection with ALL GTs - Intersection with Owner GT
-        # BUT: GTs might overlap each other.
-        # So we need Union(Intersection(pred, GT_j) for j != i).
-
-        trespass_boxes = [x[2] for x in intersections if x[0] != best_gt_idx]
-
-        if trespass_boxes:
-            # Here we can use mask for union area of trespass boxes!
-            # Create a mask for these boxes and sum it.
-            t_mask = _create_mask(trespass_boxes, (image_height, image_width), binary=True)
-            total_trespass_area += np.sum(t_mask)
-
+    # Raw trespass score (as per formula)
     T_raw = total_trespass_area / total_gt_area
-    denominator = n * (total_gt_area - min_gt_area)
-
-    if denominator == 0:
-        return (0.0, 1.0) if return_raw else 0.0  # Factor? Just return 0
-
-    T = total_trespass_area / denominator
-
+    # I have removed normalisation for now as it isb't used we can create a more stable solution once we understand
+    # everything more clealy
     if return_raw:
-        # Rough mapping
-        return float(T_raw), float(denominator / total_gt_area)
-
-    return min(1.0, max(0.0, T))
+        return float(T_raw), 1.0
+    
+    return float(T_raw)
 
 
 def excess(
