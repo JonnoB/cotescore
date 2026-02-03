@@ -340,12 +340,12 @@ def cote_score(
     n = len(predicted_regions)
 
     C = coverage(predicted_regions, ground_truth_regions, image_width, image_height)
-    T = trespass(predicted_regions, ground_truth_regions, image_width, image_height)
+    T,_ = trespass(predicted_regions, ground_truth_regions, image_width, image_height, return_raw=True)
 
     if n <= 1:
         O = 0.0
     else:
-        O = overlap(predicted_regions, ground_truth_regions, image_width, image_height)
+        O,_ = overlap(predicted_regions, ground_truth_regions, image_width, image_height, return_raw=True)
 
     E = excess(predicted_regions, ground_truth_regions, image_width, image_height)
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
