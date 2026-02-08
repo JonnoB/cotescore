@@ -318,20 +318,20 @@ def _(df_sequential_d):
 
 
 @app.cell
-def _(df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
+def _(df_hiding_d, df_proportional_d, df_real, df_sequential_d, np, plt):
     # Balance point figure: d_total at d_parse=d_ocr vs CER, with theoretical bounds
     _fig, _ax = plt.subplots(figsize=(9, 6))
 
     _pinsker_const = 1 / (2 * np.sqrt(2 * np.log(2)))
 
     _modes_data = [
-        (df_hiding_d, "Hiding", "tab:red", "o"),
-        (df_proportional_d, "Proportional", "tab:blue", "s"),
-        (df_sequential_d, "Sequential", "tab:green", "^"),
+        (df_hiding_d, "Hiding (synthetic)", "tab:red"),
+        (df_proportional_d, "Proportional (synthetic)", "tab:blue"),
+        (df_sequential_d, "Sequential (synthetic)", "tab:green"),
     ]
 
-    # For each mode, find the balance point (d_parse = d_ocr) at each ocr_frac
-    for _df, _label, _color, _marker in _modes_data:
+    # For each synthetic mode, find the balance point (d_parse = d_ocr) at each ocr_frac
+    for _df, _label, _color in _modes_data:
         _balance_cer = []
         _balance_dtotal = []
         for _of in sorted(_df["ocr_frac"].unique()):
@@ -339,13 +339,11 @@ def _(df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
                 continue
             _group = _df[_df["ocr_frac"] == _of].sort_values("parse_frac")
             _pmo = _group["parse_minus_ocr"].values
-            _pf = _group["parse_frac"].values
             _dt = _group["d_total"].values
             # Find zero crossing of parse_minus_ocr
             _sign_changes = np.where(np.diff(np.sign(_pmo)))[0]
             if len(_sign_changes) > 0:
                 _i = _sign_changes[0]
-                # Linear interpolation to find exact crossing
                 _frac = -_pmo[_i] / (_pmo[_i + 1] - _pmo[_i])
                 _dt_interp = _dt[_i] + _frac * (_dt[_i + 1] - _dt[_i])
                 _balance_cer.append(_of)
@@ -353,12 +351,38 @@ def _(df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
 
         _ax.plot(
             _balance_cer, _balance_dtotal,
-            color=_color, marker=_marker, markersize=5,
-            linewidth=1.5, label=_label,
+            color=_color, linewidth=1.5, label=_label,
         )
 
+    # Realistic balance points (group by target_cer, interpolate across parse_frac)
+    _balance_cer_real = []
+    _balance_dtotal_real = []
+    for _tc in sorted(df_real["target_cer"].unique()):
+        if _tc == 0:
+            continue
+        _group = df_real[df_real["target_cer"] == _tc].sort_values("parse_frac")
+        _pmo = _group["parse_minus_ocr"].values
+        _dt = _group["d_total"].values
+        _cer_vals = _group["cer"].values
+        _sign_changes = np.where(np.diff(np.sign(_pmo)))[0]
+        if len(_sign_changes) > 0:
+            _i = _sign_changes[0]
+            _frac = -_pmo[_i] / (_pmo[_i + 1] - _pmo[_i])
+            _dt_interp = _dt[_i] + _frac * (_dt[_i + 1] - _dt[_i])
+            _cer_interp = _cer_vals[_i] + _frac * (_cer_vals[_i + 1] - _cer_vals[_i])
+            _balance_cer_real.append(_cer_interp)
+            _balance_dtotal_real.append(_dt_interp)
+
+    _ax.plot(
+        _balance_cer_real, _balance_dtotal_real,
+        color="tab:purple", linewidth=2, label="Realistic (scrambledtext + limerick)",
+    )
+
     # Bound curves
-    _cer_max = max(_df["ocr_frac"].max() for _df, _, _, _ in _modes_data)
+    _cer_max = max(
+        max((_df["ocr_frac"].max() for _df, _, _ in _modes_data)),
+        max(_balance_cer_real) if _balance_cer_real else 0,
+    )
     _cer_range = np.linspace(1e-6, _cer_max * 1.1, 200)
     _ax.plot(
         _cer_range, 2 * np.sqrt(_cer_range),
@@ -369,6 +393,11 @@ def _(df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
         _cer_range, np.sqrt(_cer_range),
         "k-.", linewidth=2,
         label=r"$\sqrt{CER}$ (half-Lin: below $\Rightarrow$ OCR dominates)",
+    )
+    _ax.plot(
+        _cer_range, _cer_range,
+        "k-", linewidth=1, alpha=0.6,
+        label=r"$CER$ (identity)",
     )
     _ax.plot(
         _cer_range, 2 * _pinsker_const * _cer_range,
@@ -456,9 +485,17 @@ def _(FRAC_MAX, df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
 
 
 @app.cell
-def _(FRAC_MAX, df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
-    # F1 score for parse-dominance classification by CER threshold
-    _fig, _axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
+def _(
+    FRAC_MAX,
+    df_hiding_d,
+    df_proportional_d,
+    df_real,
+    df_sequential_d,
+    np,
+    plt,
+):
+    # F1 score for parse-dominance classification by CER threshold (2x2: 3 synthetic + realistic)
+    _fig, _axes = plt.subplots(2, 2, figsize=(12, 9), sharey=True)
     _fig.suptitle(
         "F1 score for parse-dominance detection by CER threshold",
         fontsize=13, fontweight="bold",
@@ -466,19 +503,20 @@ def _(FRAC_MAX, df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
 
     _d_cap = 2 * np.sqrt(FRAC_MAX)  # d_total ceiling
 
-    _modes_data = [
-        (df_hiding_d, "Hiding"),
-        (df_proportional_d, "Proportional"),
-        (df_sequential_d, "Sequential"),
-    ]
-
     _thresholds = [
         (r"$2\sqrt{CER}$", lambda cer: 2 * np.sqrt(cer), "tab:red", "--"),
         (r"$\sqrt{CER}$", lambda cer: np.sqrt(cer), "tab:blue", "-"),
         (r"$CER$", lambda cer: cer, "tab:green", "-."),
     ]
 
-    for _ax, (_df, _mode_name) in zip(_axes, _modes_data):
+    # Synthetic modes (first 3 panels)
+    _synthetic_modes = [
+        (df_hiding_d, "Hiding (synthetic)"),
+        (df_proportional_d, "Proportional (synthetic)"),
+        (df_sequential_d, "Sequential (synthetic)"),
+    ]
+
+    for _ax, (_df, _mode_name) in zip(_axes.flat[:3], _synthetic_modes):
         for _thresh_label, _thresh_fn, _color, _ls in _thresholds:
             _cers = []
             _f1s = []
@@ -503,15 +541,207 @@ def _(FRAC_MAX, df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
             _ax.plot(_cers, _f1s, color=_color, linestyle=_ls, linewidth=2, label=_thresh_label)
 
         _ax.set_title(_mode_name)
-        _ax.set_xlabel("CER (OCR error fraction)")
         _ax.set_ylim(-0.05, 1.05)
-        _ax.legend(fontsize=9)
+        _ax.legend(fontsize=8)
 
-    _axes[0].set_ylabel("F1 Score")
+    # Realistic mode (4th panel) — bin by actual CER
+    _ax_real = _axes[1, 1]
+    _cer_bins = np.arange(0, df_real["cer"].max() + 0.005, 0.005)
+
+    for _thresh_label, _thresh_fn, _color, _ls in _thresholds:
+        _cers_plot = []
+        _f1s_plot = []
+        for _bin_start, _bin_end in zip(_cer_bins[:-1], _cer_bins[1:]):
+            _bin_mid = (_bin_start + _bin_end) / 2
+            if _bin_mid == 0:
+                continue
+            _group = df_real[(df_real["cer"] >= _bin_start)
+                            & (df_real["cer"] < _bin_end)
+                            & (df_real["d_total"] < _d_cap)]
+            if len(_group) == 0:
+                continue
+            _T = _thresh_fn(_bin_mid)
+            _actual_parse = _group["d_parse"] > _group["d_ocr"]
+            _predicted_parse = _group["d_total"] > _T
+            _tp = (_actual_parse & _predicted_parse).sum()
+            _fp = (~_actual_parse & _predicted_parse).sum()
+            _fn = (_actual_parse & ~_predicted_parse).sum()
+            _prec = _tp / (_tp + _fp) if (_tp + _fp) > 0 else 0.0
+            _rec = _tp / (_tp + _fn) if (_tp + _fn) > 0 else 0.0
+            _f1 = 2 * _prec * _rec / (_prec + _rec) if (_prec + _rec) > 0 else 0.0
+            _cers_plot.append(_bin_mid)
+            _f1s_plot.append(_f1)
+
+        _ax_real.plot(_cers_plot, _f1s_plot, color=_color, linestyle=_ls,
+                      linewidth=2, label=_thresh_label)
+
+    _ax_real.set_title("Realistic (scrambledtext + limerick)")
+    _ax_real.set_ylim(-0.05, 1.05)
+    _ax_real.legend(fontsize=8)
+
+    # Axis labels
+    for _ax in _axes[1, :]:
+        _ax.set_xlabel("CER")
+    for _ax in _axes[:, 0]:
+        _ax.set_ylabel("F1 Score")
+
     plt.tight_layout()
     fig_f1 = _fig
     fig_f1
     return
+
+
+@app.cell
+def _():
+    # Cell R1: Load limerick characters + scrambledtext distributions
+    import json
+    import pkg_resources
+    from scrambledtext import ProbabilityDistributions
+    from collections import Counter
+
+    # Load limerick ground truth (exported by limerick_case_study.py)
+    with open("data/limerick_case_study/ground_truth.json") as _f:
+        _gt = json.load(_f)
+
+    # Extract all characters with spatial positions
+    _all_chars = []
+    for _block in _gt["blocks"].values():
+        for _para in _block.get("paragraphs", []):
+            for _c in _para.get("characters", []):
+                _all_chars.append(_c)
+
+    # Sort by reading order: top-to-bottom then left-to-right (y then x of bbox centre)
+    _all_chars.sort(key=lambda c: (c["bbox"][1] + c["bbox"][3] / 2, c["bbox"][0] + c["bbox"][2] / 2))
+    real_chars_sorted = _all_chars
+
+    # Build ground truth count dict
+    Q_real = dict(Counter(c["char"] for c in _all_chars))
+
+    # Load scrambledtext distributions
+    _json_path = pkg_resources.resource_filename("scrambledtext", "corruption_distribs.json")
+    real_distribs = ProbabilityDistributions.load_from_json(_json_path)
+
+    # Add overflow character for parsing error
+    OVERFLOW_CHAR = "\x00"  # null byte as overflow marker
+
+    print(f"Limerick: {len(_all_chars)} chars, {len(Q_real)} unique")
+    return OVERFLOW_CHAR, Q_real, real_chars_sorted, real_distribs
+
+
+@app.cell
+def _(OVERFLOW_CHAR, jensen_shannon_divergence, np):
+    # Cell R2: Helpers and CorruptionEngine setup
+    from collections import Counter as _Counter
+    from scrambledtext import CorruptionEngine
+    from jiwer import cer as _jiwer_cer
+
+    def _unified_vocab(*count_dicts):
+        _keys = set()
+        for _d in count_dicts:
+            _keys.update(_d.keys())
+        return sorted(_keys)
+
+    def real_compute_cdd(counts_a, counts_b):
+        """CDD = sqrt(JSD) between two count dicts (dynamic vocab)."""
+        _vocab = _unified_vocab(counts_a, counts_b)
+        _p = np.array([counts_a.get(c, 0) for c in _vocab], dtype=float)
+        _q = np.array([counts_b.get(c, 0) for c in _vocab], dtype=float)
+        _p_sum, _q_sum = _p.sum(), _q.sum()
+        if _p_sum > 0:
+            _p = _p / _p_sum
+        if _q_sum > 0:
+            _q = _q / _q_sum
+        _jsd = jensen_shannon_divergence(_p, _q)
+        return np.sqrt(max(_jsd, 0.0))
+
+    def apply_real_parse_corruption(chars_sorted, fraction):
+        """Remove last fraction of characters by reading order, move to overflow.
+
+        Returns (R_counts, kept_text, overflow_count).
+        """
+        _n = len(chars_sorted)
+        _n_remove = round(fraction * _n)
+        _keep = chars_sorted[:_n - _n_remove] if _n_remove > 0 else chars_sorted
+        _kept_text = "".join(c["char"] for c in _keep)
+        _R = dict(_Counter(c["char"] for c in _keep))
+        if _n_remove > 0:
+            _R[OVERFLOW_CHAR] = _R.get(OVERFLOW_CHAR, 0) + _n_remove
+        return _R, _kept_text, _n_remove
+
+    def corrupt_text_realistic(text, target_cer, distribs):
+        """Corrupt text using scrambledtext CorruptionEngine."""
+        if target_cer == 0 or not text:
+            return text, 0.0
+        _engine = CorruptionEngine(
+            distribs.conditional,
+            distribs.substitutions,
+            distribs.insertions,
+            target_wer=1.0,
+            target_cer=target_cer,
+        )
+        _corrupted, _, _, _ = _engine.corrupt_text(text)
+        _actual_cer = _jiwer_cer(text, _corrupted)
+        return _corrupted, _actual_cer
+    return (
+        apply_real_parse_corruption,
+        corrupt_text_realistic,
+        real_compute_cdd,
+    )
+
+
+@app.cell
+def _(
+    FRAC_MAX,
+    OVERFLOW_CHAR,
+    Q_real,
+    apply_real_parse_corruption,
+    corrupt_text_realistic,
+    np,
+    pd,
+    real_chars_sorted,
+    real_compute_cdd,
+    real_distribs,
+):
+    # Cell R4: Run realistic simulation (text-level corruption via CorruptionEngine)
+    from collections import Counter as _Counter
+
+    _parse_step = 0.01
+    _parse_fracs = [round(i * _parse_step, 2) for i in range(int(FRAC_MAX / _parse_step) + 1)]
+    _target_cers = [round(i * 0.005, 3) for i in range(int(FRAC_MAX / 0.005) + 1)]
+    _n_repeats = 10
+
+    _results = []
+    for _pf in _parse_fracs:
+        _R_counts, _kept_text, _overflow_n = apply_real_parse_corruption(real_chars_sorted, _pf)
+        _d_parse = real_compute_cdd(_R_counts, Q_real)
+
+        for _target_cer in _target_cers:
+            _d_ocrs, _d_totals, _actual_cers = [], [], []
+            for _ in range(_n_repeats):
+                _corrupted, _actual_cer = corrupt_text_realistic(
+                    _kept_text, _target_cer, real_distribs
+                )
+                _obs_counts = dict(_Counter(_corrupted))
+                if _overflow_n > 0:
+                    _obs_counts[OVERFLOW_CHAR] = _obs_counts.get(OVERFLOW_CHAR, 0) + _overflow_n
+                _d_ocrs.append(real_compute_cdd(_obs_counts, _R_counts))
+                _d_totals.append(real_compute_cdd(_obs_counts, Q_real))
+                _actual_cers.append(_actual_cer)
+
+            _results.append({
+                "parse_frac": _pf,
+                "target_cer": _target_cer,
+                "cer": np.mean(_actual_cers),
+                "d_total": np.mean(_d_totals),
+                "d_parse": _d_parse,
+                "d_ocr": np.mean(_d_ocrs),
+            })
+
+    df_real = pd.DataFrame(_results)
+    df_real["parse_minus_ocr"] = df_real["d_parse"] - df_real["d_ocr"]
+    print(f"Realistic simulation: {len(df_real)} rows ({_n_repeats} repeats averaged)")
+    print(f"CER range: {df_real['cer'].min():.4f} to {df_real['cer'].max():.4f}")
+    return (df_real,)
 
 
 if __name__ == "__main__":
