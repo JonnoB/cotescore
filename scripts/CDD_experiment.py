@@ -375,7 +375,7 @@ def _(df_hiding_d, df_proportional_d, df_real, df_sequential_d, np, plt):
 
     _ax.plot(
         _balance_cer_real, _balance_dtotal_real,
-        color="tab:purple", linewidth=2, label="Realistic (scrambledtext + limerick)",
+        color="tab:purple", linewidth=2, label="Realistic (scrambledtext)",
     )
 
     # Bound curves
@@ -387,17 +387,17 @@ def _(df_hiding_d, df_proportional_d, df_real, df_sequential_d, np, plt):
     _ax.plot(
         _cer_range, 2 * np.sqrt(_cer_range),
         "k--", linewidth=2,
-        label=r"$2\sqrt{CER}$ (Lin upper: above $\Rightarrow$ parsing dominates)",
+        label=r"$2\sqrt{CER}$",
     )
     _ax.plot(
         _cer_range, np.sqrt(_cer_range),
         "k-.", linewidth=2,
-        label=r"$\sqrt{CER}$ (half-Lin: below $\Rightarrow$ OCR dominates)",
+        label=r"$\sqrt{CER}$",
     )
     _ax.plot(
         _cer_range, _cer_range,
         "k-", linewidth=1, alpha=0.6,
-        label=r"$CER$ (identity)",
+        label=r"$CER$",
     )
     _ax.plot(
         _cer_range, 2 * _pinsker_const * _cer_range,
@@ -497,7 +497,7 @@ def _(
     # F1 score for parse-dominance classification by CER threshold (2x2: 3 synthetic + realistic)
     _fig, _axes = plt.subplots(2, 2, figsize=(12, 9), sharey=True)
     _fig.suptitle(
-        "F1 score for parse-dominance detection by CER threshold",
+        "F1 score for parse-dominance detection by CER threshold based on corruption type",
         fontsize=13, fontweight="bold",
     )
 

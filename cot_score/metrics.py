@@ -456,7 +456,7 @@ def cdd(gt_text_list, ocr_text_list):
     p_ocr = ocr_aligned_counts / ocr_total if ocr_total > 0 else np.zeros_like(ocr_aligned_counts, dtype=float)
     
     # 7. Calculate JSD
-    cdd_value = jensen_shannon_divergence(p_gt, p_ocr)
+    cdd_value = np.sqrt(jensen_shannon_divergence(p_gt, p_ocr))
 
     return cdd_value, char_counts_dict
 
