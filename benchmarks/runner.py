@@ -15,7 +15,7 @@ import numpy as np
 from tqdm import tqdm
 
 from cot_score.dataset import NCSEDataset
-from cot_score.metrics import coverage, overlap, trespass, excess, cote_score, mean_iou
+from cot_score.metrics import coverage, overlap, trespass, excess, cote_score as cot_score, mean_iou
 from cot_score.map_metric import MAPMetric
 from PIL import Image
 

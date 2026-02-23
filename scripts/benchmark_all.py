@@ -2,8 +2,8 @@
 """
 Benchmark all models on NCSE dataset.
 
-This script evaluates multiple models (DocLayout-YOLO, DoclingLayoutHeron)
-on the NCSE v2 test set and computes comparative metrics.
+This script evaluates multiple models (DocLayout-YOLO, DoclingLayoutHeron,
+PP-DocLayout-L) on the NCSE v2 test set and computes comparative metrics.
 """
 
 import sys
@@ -19,6 +19,7 @@ sys.path.insert(0, str(project_root))
 from benchmarks.runner import BenchmarkRunner
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
+from models.pp_doclayout import PPDocLayout
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -43,9 +44,9 @@ def main():
     parser.add_argument(
         "--models",
         nargs="+",
-        default=["yolo", "heron"],
-        choices=["yolo", "heron"],
-        help="Models to benchmark (default: yolo heron)",
+        default=["yolo", "heron", "ppdoc"],
+        choices=["yolo", "heron", "ppdoc"],
+        help="Models to benchmark (default: yolo heron ppdoc)",
     )
     parser.add_argument("--device", type=str, default=None, help="Device to use")
 
@@ -71,6 +72,11 @@ def main():
 
     if "heron" in args.models:
         models_to_run.append(("DoclingLayoutHeron", DoclingLayoutHeron(device=args.device)))
+
+    if "ppdoc" in args.models:
+        models_to_run.append(
+            ("PPDocLayout", PPDocLayout(device=args.device if args.device else "cpu"))
+        )
 
     for model_name, model in models_to_run:
         logger.info(f"\n{'='*60}")
@@ -98,22 +104,24 @@ def main():
 
     logger.info(f"\nCombined results saved to: {final_output}")
 
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 75)
     print("COMPARATIVE SUMMARY")
-    print("=" * 60)
-    print(f"{'Metric':<20} | {'YOLO':<15} | {'Heron':<15}")
-    print("-" * 60)
+    print("=" * 75)
+    print(f"{'Metric':<20} | {'YOLO':<15} | {'Heron':<15} | {'PPDocLayout':<15}")
+    print("-" * 75)
 
     metrics = ["map", "mean_iou", "coverage", "overlap"]
     for metric in metrics:
         yolo_score = all_results["models"].get("DocLayout-YOLO", {}).get(metric, "N/A")
         heron_score = all_results["models"].get("DoclingLayoutHeron", {}).get(metric, "N/A")
+        ppdoc_score = all_results["models"].get("PPDocLayout", {}).get(metric, "N/A")
 
         yolo_str = f"{yolo_score:.4f}" if isinstance(yolo_score, float) else str(yolo_score)
         heron_str = f"{heron_score:.4f}" if isinstance(heron_score, float) else str(heron_score)
+        ppdoc_str = f"{ppdoc_score:.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
 
-        print(f"{metric:<20} | {yolo_str:<15} | {heron_str:<15}")
-    print("=" * 60)
+        print(f"{metric:<20} | {yolo_str:<15} | {heron_str:<15} | {ppdoc_str:<15}")
+    print("=" * 75)
 
 
 if __name__ == "__main__":
