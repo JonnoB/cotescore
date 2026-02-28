@@ -15,6 +15,7 @@ import numpy as np
 import collections
 
 from cot_score.types import MaskInstance
+from cot_score.adapters import calculate_intersection_area as _calculate_intersection_area
 
 
 BBox = Dict[str, Any]
@@ -395,109 +396,6 @@ def cdd(gt_text_list, ocr_text_list):
     cdd_value = np.sqrt(jensen_shannon_divergence(p_gt, p_ocr))
 
     return cdd_value, char_counts_dict
-
-
-# =============================================================================
-# Internal helper functions
-# =============================================================================
-
-
-def _calculate_union_area_from_boxes(boxes: List[BBox]) -> float:
-    """
-    Calculate the union area of a list of boxes using the grid method.
-    Adapted from original coverage implementation.
-    """
-    if not boxes:
-        return 0.0
-
-    xs = set()
-    ys = set()
-    for box in boxes:
-        xs.add(box["x"])
-        xs.add(box["x"] + box["width"])
-        ys.add(box["y"])
-        ys.add(box["y"] + box["height"])
-
-    sorted_xs = sorted(list(xs))
-    sorted_ys = sorted(list(ys))
-
-    union_area = 0.0
-
-    # Iterate over grid cells
-    for i in range(len(sorted_xs) - 1):
-        for j in range(len(sorted_ys) - 1):
-            x1, x2 = sorted_xs[i], sorted_xs[i + 1]
-            y1, y2 = sorted_ys[j], sorted_ys[j + 1]
-
-            cell_mid_x = (x1 + x2) / 2
-            cell_mid_y = (y1 + y2) / 2
-
-            covered = False
-            for box in boxes:
-                if (
-                    box["x"] <= cell_mid_x <= box["x"] + box["width"]
-                    and box["y"] <= cell_mid_y <= box["y"] + box["height"]
-                ):
-                    covered = True
-                    break
-
-            if covered:
-                union_area += (x2 - x1) * (y2 - y1)
-
-    return union_area
-
-
-def _calculate_intersection_area(box1: BBox, box2: BBox) -> float:
-    """Calculate the intersection area between two bounding boxes."""
-    x1_min = box1["x"]
-    y1_min = box1["y"]
-    x1_max = box1["x"] + box1["width"]
-    y1_max = box1["y"] + box1["height"]
-
-    x2_min = box2["x"]
-    y2_min = box2["y"]
-    x2_max = box2["x"] + box2["width"]
-    y2_max = box2["y"] + box2["height"]
-
-    # Calculate intersection coordinates
-    inter_x_min = max(x1_min, x2_min)
-    inter_y_min = max(y1_min, y2_min)
-    inter_x_max = min(x1_max, x2_max)
-    inter_y_max = min(y1_max, y2_max)
-
-    if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
-        return (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
-    else:
-        return 0.0
-
-
-def _get_intersection_box(box1: BBox, box2: BBox) -> Dict[str, float]:
-    """Get the bounding box representing the intersection of two boxes."""
-    x1_min = box1["x"]
-    y1_min = box1["y"]
-    x1_max = box1["x"] + box1["width"]
-    y1_max = box1["y"] + box1["height"]
-
-    x2_min = box2["x"]
-    y2_min = box2["y"]
-    x2_max = box2["x"] + box2["width"]
-    y2_max = box2["y"] + box2["height"]
-
-    # Calculate intersection coordinates
-    inter_x_min = max(x1_min, x2_min)
-    inter_y_min = max(y1_min, y2_min)
-    inter_x_max = min(x1_max, x2_max)
-    inter_y_max = min(y1_max, y2_max)
-
-    if inter_x_max > inter_x_min and inter_y_max > inter_y_min:
-        return {
-            "x": inter_x_min,
-            "y": inter_y_min,
-            "width": inter_x_max - inter_x_min,
-            "height": inter_y_max - inter_y_min,
-        }
-    else:
-        return None
 
 
 __all__ = [

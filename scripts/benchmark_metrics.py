@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cot_score import metrics
+from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 from tests import reference_metrics
 
 
@@ -29,29 +30,16 @@ def _boxes_to_gt_ssu_map_single(gt_boxes, image_width: int, image_height: int) -
     speed benchmarks of mask-first metrics, but does not exercise multi-SSU
     ownership/trespass behavior.
     """
-    gt_map = np.zeros((image_height, image_width), dtype=np.int32)
+    gt_boxes_with_id = []
     for g in gt_boxes:
-        x1 = max(0, int(round(g["x"])))
-        y1 = max(0, int(round(g["y"])))
-        x2 = min(image_width, int(round(g["x"] + g["width"])))
-        y2 = min(image_height, int(round(g["y"] + g["height"])))
-        if x2 > x1 and y2 > y1:
-            gt_map[y1:y2, x1:x2] = 1
-    return gt_map
+        gg = dict(g)
+        gg["ssu_id"] = 1
+        gt_boxes_with_id.append(gg)
+    return boxes_to_gt_ssu_map(gt_boxes_with_id, image_width, image_height, scale=1.0)
 
 
 def _boxes_to_pred_masks(pred_boxes, image_width: int, image_height: int):
-    masks = []
-    for p in pred_boxes:
-        m = np.zeros((image_height, image_width), dtype=bool)
-        x1 = max(0, int(round(p["x"])))
-        y1 = max(0, int(round(p["y"])))
-        x2 = min(image_width, int(round(p["x"] + p["width"])))
-        y2 = min(image_height, int(round(p["y"] + p["height"])))
-        if x2 > x1 and y2 > y1:
-            m[y1:y2, x1:x2] = True
-        masks.append(m)
-    return masks
+    return boxes_to_pred_masks(pred_boxes, image_width, image_height, scale=1.0)
 
 
 def format_table(data: List[List[str]], headers: List[str]) -> str:

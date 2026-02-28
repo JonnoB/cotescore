@@ -10,6 +10,7 @@ import numpy as np
 from tqdm import tqdm
 
 from cot_score.dataset import NCSEDataset
+from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cot_score.metrics import (
     coverage,
     overlap,
@@ -26,63 +27,6 @@ logger = logging.getLogger(__name__)
 
 EVAL_MAX_DIM = 2000
 
-
-def _eval_shape(orig_w: int, orig_h: int, max_dim: int = EVAL_MAX_DIM) -> Tuple[int, int, float]:
-    if orig_w <= 0 or orig_h <= 0:
-        raise ValueError("Invalid image size")
-    scale = min(1.0, float(max_dim) / float(max(orig_w, orig_h)))
-    w_eval = max(1, int(round(orig_w * scale)))
-    h_eval = max(1, int(round(orig_h * scale)))
-    return w_eval, h_eval, scale
-
-
-def _scale_box_to_eval(box: Dict[str, Any], scale: float) -> Tuple[int, int, int, int]:
-    x1 = int(round(float(box["x"]) * scale))
-    y1 = int(round(float(box["y"]) * scale))
-    x2 = int(round((float(box["x"]) + float(box["width"])) * scale))
-    y2 = int(round((float(box["y"]) + float(box["height"])) * scale))
-    return x1, y1, x2, y2
-
-
-def _clamp_box(x1: int, y1: int, x2: int, y2: int, w: int, h: int) -> Tuple[int, int, int, int]:
-    x1c = max(0, min(w, x1))
-    x2c = max(0, min(w, x2))
-    y1c = max(0, min(h, y1))
-    y2c = max(0, min(h, y2))
-    return x1c, y1c, x2c, y2c
-
-
-def _boxes_to_gt_ssu_map(ground_truth: List[Dict[str, Any]], w_eval: int, h_eval: int, scale: float) -> np.ndarray:
-    """Rasterize ground-truth SSU boxes to an SSU id map.
-
-    Note: Real-world annotations can contain small boundary overlaps due to rounding.
-    To avoid crashing evaluation, this rasterizer uses a first-write-wins policy:
-    once a pixel has been assigned to a non-zero SSU id, it will not be overwritten.
-    """
-    gt_map = np.zeros((h_eval, w_eval), dtype=np.int32)
-    for g in ground_truth:
-        ssu_id = int(g["ssu_id"])
-        x1, y1, x2, y2 = _scale_box_to_eval(g, scale)
-        x1, y1, x2, y2 = _clamp_box(x1, y1, x2, y2, w_eval, h_eval)
-        if x2 <= x1 or y2 <= y1:
-            continue
-        roi = gt_map[y1:y2, x1:x2]
-        roi[roi == 0] = ssu_id
-    return gt_map
-
-
-def _boxes_to_pred_masks(predictions: List[Dict[str, Any]], w_eval: int, h_eval: int, scale: float) -> List[np.ndarray]:
-    masks: List[np.ndarray] = []
-    for p in predictions:
-        m = np.zeros((h_eval, w_eval), dtype=bool)
-        x1, y1, x2, y2 = _scale_box_to_eval(p, scale)
-        x1, y1, x2, y2 = _clamp_box(x1, y1, x2, y2, w_eval, h_eval)
-        if x2 <= x1 or y2 <= y1:
-            masks.append(m)
-            continue
-        m[y1:y2, x1:x2] = True
-        masks.append(m)
-    return masks
 
 
 class BenchmarkRunner:
@@ -231,9 +175,9 @@ class BenchmarkRunner:
                 logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
                 image_width, image_height = 1000, 1000  # Default fallback
 
-            w_eval, h_eval, scale = _eval_shape(image_width, image_height, EVAL_MAX_DIM)
-            gt_ssu_map = _boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale)
-            pred_masks = _boxes_to_pred_masks(predictions, w_eval, h_eval, scale)
+            w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
+            gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
+            pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
 
             # Compute standard per-image metrics
             image_metrics = {}

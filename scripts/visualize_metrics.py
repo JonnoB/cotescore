@@ -9,9 +9,12 @@ from cot_score.metrics import (
     trespass,
     excess,
     cote_score,
-    _calculate_union_area_from_boxes,
-    _get_intersection_box,
-    _calculate_intersection_area,
+)
+
+from cot_score.adapters import (
+    calculate_union_area_from_boxes as _calculate_union_area_from_boxes,
+    get_intersection_box as _get_intersection_box,
+    calculate_intersection_area as _calculate_intersection_area,
 )
 
 # Output directory for artifacts

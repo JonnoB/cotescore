@@ -3,6 +3,7 @@
 import pytest
 import numpy as np
 from cot_score.metrics import coverage, overlap, iou, mean_iou, trespass, excess, cote_score as cot_score
+from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 from tests.reference_metrics import (
     coverage as ref_coverage,
     overlap as ref_overlap,
@@ -16,32 +17,16 @@ TOLERANCE = 1e-5
 
 
 def _boxes_to_gt_ssu_map(gt_boxes, image_width: int, image_height: int) -> np.ndarray:
-    gt_map = np.zeros((image_height, image_width), dtype=np.int32)
+    gt_boxes_with_id = []
     for idx, g in enumerate(gt_boxes, start=1):
-        x1 = max(0, int(round(g["x"])))
-        y1 = max(0, int(round(g["y"])))
-        x2 = min(image_width, int(round(g["x"] + g["width"])))
-        y2 = min(image_height, int(round(g["y"] + g["height"])))
-        if x2 <= x1 or y2 <= y1:
-            continue
-        region = gt_map[y1:y2, x1:x2]
-        # Deterministic tie-breaker for overlaps: keep the first (lowest idx) assignment.
-        region[region == 0] = idx
-    return gt_map
+        gg = dict(g)
+        gg["ssu_id"] = idx
+        gt_boxes_with_id.append(gg)
+    return boxes_to_gt_ssu_map(gt_boxes_with_id, image_width, image_height, scale=1.0)
 
 
 def _boxes_to_pred_masks(pred_boxes, image_width: int, image_height: int):
-    masks = []
-    for p in pred_boxes:
-        m = np.zeros((image_height, image_width), dtype=bool)
-        x1 = max(0, int(round(p["x"])))
-        y1 = max(0, int(round(p["y"])))
-        x2 = min(image_width, int(round(p["x"] + p["width"])))
-        y2 = min(image_height, int(round(p["y"] + p["height"])))
-        if x2 > x1 and y2 > y1:
-            m[y1:y2, x1:x2] = True
-        masks.append(m)
-    return masks
+    return boxes_to_pred_masks(pred_boxes, image_width, image_height, scale=1.0)
 
 
 class TestCoverage:
