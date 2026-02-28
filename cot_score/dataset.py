@@ -64,16 +64,26 @@ class NCSEDataset:
         df = pd.read_csv(csv_path)
 
         actual_files = {f.name: f for f in images_dir.glob(f"*.{self.image_ext}")}
-        filename_mapping = self._create_filename_mapping(
-            df["filename"].unique(), list(actual_files.keys())
-        )
+
+        # NOTE: Filenames in the ground-truth CSV are now expected to match the actual image
+        # filenames in `images_dir` exactly (no translation/mapping required).
+        #
+        # The previous mapping logic is kept commented out for safety and to make it easy
+        # to re-enable if a future dataset release reintroduces differing filename formats.
+        # filename_mapping = self._create_filename_mapping(
+        #     df["filename"].unique(), list(actual_files.keys())
+        # )
 
         for csv_filename in df["filename"].unique():
-            actual_filename = filename_mapping.get(csv_filename)
-            if not actual_filename:
+            # Previous mapping-based resolution (kept for reference):
+            # actual_filename = filename_mapping.get(csv_filename)
+            # if not actual_filename:
+            #     continue
+
+            if csv_filename not in actual_files:
                 continue
 
-            image_path = images_dir / actual_filename
+            image_path = images_dir / csv_filename
             if not image_path.exists():
                 continue
 
