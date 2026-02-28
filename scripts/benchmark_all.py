@@ -49,6 +49,24 @@ def main():
         help="Models to benchmark (default: yolo heron ppdoc)",
     )
     parser.add_argument("--device", type=str, default=None, help="Device to use")
+    parser.add_argument(
+        "--csv-filename",
+        type=str,
+        default=None,
+        help="Name of annotations CSV file (default: ncse_testset_bboxes.csv)",
+    )
+    parser.add_argument(
+        "--images-subdir",
+        type=str,
+        default=None,
+        help="Name of images subdirectory (default: ncse_test_png_120)",
+    )
+    parser.add_argument(
+        "--image-ext",
+        type=str,
+        default="png",
+        help="Image file extension (default: png)",
+    )
 
     args = parser.parse_args()
 
@@ -59,7 +77,12 @@ def main():
         logger.error(f"Dataset path does not exist: {dataset_path}")
         sys.exit(1)
 
-    runner = BenchmarkRunner(dataset_path, output_path)
+    runner = BenchmarkRunner(
+        dataset_path, output_path,
+        csv_filename=args.csv_filename,
+        images_subdir=args.images_subdir,
+        image_ext=args.image_ext,
+    )
 
     all_results = {"timestamp": datetime.now().isoformat(), "models": {}}
 

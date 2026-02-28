@@ -17,16 +17,29 @@ logger = logging.getLogger(__name__)
 class NCSEDataset:
     """Loader for the NCSE v2 dataset."""
 
-    def __init__(self, dataset_path: Path, split: str = "test"):
+    def __init__(
+        self,
+        dataset_path: Path,
+        split: str = "test",
+        csv_filename: Optional[str] = None,
+        images_subdir: Optional[str] = None,
+        image_ext: str = "png",
+    ):
         """
         Initialize the NCSE dataset loader.
 
         Args:
             dataset_path: Path to the NCSE dataset directory
             split: Dataset split to load ('test' is currently supported)
+            csv_filename: Name of the annotations CSV file (default: 'ncse_testset_bboxes.csv')
+            images_subdir: Name of the images subdirectory (default: 'ncse_test_png_120')
+            image_ext: Image file extension to glob for (default: 'png')
         """
         self.dataset_path = Path(dataset_path)
         self.split = split
+        self.csv_filename = csv_filename or "ncse_testset_bboxes.csv"
+        self.images_subdir = images_subdir or "ncse_test_png_120"
+        self.image_ext = image_ext
         self.images = []
         self.annotations_by_image = {}
         self._loaded = False
@@ -39,8 +52,8 @@ class NCSEDataset:
         if self.split != "test":
             raise ValueError("Only 'test' split is currently supported.")
 
-        csv_path = self.dataset_path / "ncse_testset_bboxes.csv"
-        images_dir = self.dataset_path / "ncse_test_png_120"
+        csv_path = self.dataset_path / self.csv_filename
+        images_dir = self.dataset_path / self.images_subdir
 
         if not csv_path.exists():
             raise FileNotFoundError(f"Annotations file not found: {csv_path}")
@@ -50,7 +63,7 @@ class NCSEDataset:
 
         df = pd.read_csv(csv_path)
 
-        actual_files = {f.name: f for f in images_dir.glob("*.png")}
+        actual_files = {f.name: f for f in images_dir.glob(f"*.{self.image_ext}")}
         filename_mapping = self._create_filename_mapping(
             df["filename"].unique(), list(actual_files.keys())
         )

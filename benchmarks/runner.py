@@ -25,17 +25,25 @@ logger = logging.getLogger(__name__)
 class BenchmarkRunner:
     """Orchestrates model evaluation on the NCSE dataset."""
 
-    def __init__(self, dataset_path: Path, output_path: Path):
+    def __init__(self, dataset_path: Path, output_path: Path,
+                 csv_filename: str = None, images_subdir: str = None,
+                 image_ext: str = "png"):
         """
         Initialize the benchmark runner.
 
         Args:
             dataset_path: Path to dataset
             output_path: Path where results will be saved
+            csv_filename: Name of the annotations CSV file
+            images_subdir: Name of the images subdirectory
+            image_ext: Image file extension to glob for
         """
         self.dataset_path = Path(dataset_path)
         self.output_path = Path(output_path)
         self.output_path.mkdir(parents=True, exist_ok=True)
+        self.csv_filename = csv_filename
+        self.images_subdir = images_subdir
+        self.image_ext = image_ext
 
     def measure_latency(
         self, model, sample_image_path: Path, warmup: int = 10, repeats: int = 50
@@ -93,7 +101,12 @@ class BenchmarkRunner:
             metrics = ["mean_iou", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
 
         logger.info(f"Loading NCSE dataset from {self.dataset_path}")
-        dataset = NCSEDataset(self.dataset_path, split="test")
+        dataset = NCSEDataset(
+            self.dataset_path, split="test",
+            csv_filename=self.csv_filename,
+            images_subdir=self.images_subdir,
+            image_ext=self.image_ext,
+        )
         dataset.load()
         logger.info(f"Dataset loaded: {len(dataset)} images")
 
