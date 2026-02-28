@@ -10,21 +10,77 @@ This module provides metrics for evaluating document layout analysis predictions
 - excess: Measures coverage of background (non-ground truth) area
 """
 
-from typing import List, Dict, Any, Union, Tuple, Optional, Iterable
+from typing import List, Dict, Any, Union, Tuple, Optional, Iterable, Sequence, overload
 import numpy as np
 import collections
+
+from cot_score.types import MaskInstance
 
 
 BBox = Dict[str, Any]
 InputBox = Union[BBox, List[float], Tuple[float, ...]]
 
 
+def _as_pred_masks(preds: Sequence[Union[np.ndarray, MaskInstance]]) -> List[np.ndarray]:
+    masks: List[np.ndarray] = []
+    for p in preds:
+        if isinstance(p, MaskInstance):
+            m = p.mask
+        else:
+            m = p
+        if not isinstance(m, np.ndarray):
+            raise TypeError("Prediction mask must be a numpy array")
+        if m.ndim != 2:
+            raise ValueError("Prediction mask must be a 2D array")
+        masks.append(m.astype(bool, copy=False))
+    return masks
+
+
+def _check_gt_map(gt_ssu_map: np.ndarray) -> np.ndarray:
+    if not isinstance(gt_ssu_map, np.ndarray):
+        raise TypeError("gt_ssu_map must be a numpy array")
+    if gt_ssu_map.ndim != 2:
+        raise ValueError("gt_ssu_map must be a 2D array")
+    if not np.issubdtype(gt_ssu_map.dtype, np.integer):
+        raise TypeError("gt_ssu_map must be an integer array")
+    return gt_ssu_map
+
+
+def _ms_mask(gt_ssu_map: np.ndarray) -> np.ndarray:
+    return (gt_ssu_map > 0)
+
+
+def _area_s(ms_mask: np.ndarray) -> int:
+    return int(np.sum(ms_mask))
+
+
+def _compose_pred_count(pred_masks: Sequence[np.ndarray], shape: Tuple[int, int]) -> np.ndarray:
+    mp = np.zeros(shape, dtype=np.int32)
+    for m in pred_masks:
+        if m.shape != shape:
+            raise ValueError("All prediction masks must have the same shape as gt_ssu_map")
+        mp += m.astype(np.int32, copy=False)
+    return mp
+
+
+def _owner_ssu_id(gt_ssu_map: np.ndarray, pred_mask: np.ndarray) -> Optional[int]:
+    ms = gt_ssu_map > 0
+    ssu_pixels = gt_ssu_map[pred_mask & ms]
+    if ssu_pixels.size == 0:
+        return None
+    counts = np.bincount(ssu_pixels)
+    if counts.size <= 1:
+        return None
+    counts[0] = 0
+    max_val = counts.max(initial=0)
+    if max_val <= 0:
+        return None
+    return int(np.flatnonzero(counts == max_val)[0])
+
+
 def coverage(
-    predicted_regions: Iterable[InputBox],
-    ground_truth_regions: Iterable[InputBox],
-    image_width: int,
-    image_height: int,
-    box_format: Optional[str] = None,
+    gt_ssu_map: np.ndarray,
+    preds: Sequence[Union[np.ndarray, MaskInstance]],
 ) -> float:
     """
     Calculate coverage metric between predicted and ground truth regions.
@@ -34,47 +90,30 @@ def coverage(
     truth area.
 
     Args:
-        predicted_regions: List of predicted bounding boxes.
-        ground_truth_regions: List of ground truth bounding boxes.
-        image_width: Width of the image (required for mask creation).
-        image_height: Height of the image (required for mask creation).
-        box_format: Format string for input boxes.
+        gt_ssu_map: 2D integer array of SSU ids. Background must be 0.
+        preds: Sequence of prediction masks (2D numpy arrays) or MaskInstance.
+            Each mask must have the same shape as gt_ssu_map.
 
     Returns:
         Coverage score [0.0, 1.0].
     """
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
-
-    if not ground_truth_regions:
-        return 1.0 if not predicted_regions else 0.0
-
-    if not predicted_regions:
+    gt_ssu_map = _check_gt_map(gt_ssu_map)
+    pred_masks = _as_pred_masks(preds)
+    ms = _ms_mask(gt_ssu_map)
+    a_s = _area_s(ms)
+    if a_s == 0:
+        return 1.0 if not pred_masks else 0.0
+    if not pred_masks:
         return 0.0
-
-    # Vectorized implementation
-    # M_S (binary)
-    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
-    # M_p (binary union for coverage)
-    m_p_b = _create_mask(predicted_regions, (image_height, image_width), binary=True)
-
-    # Covered area = sum(M_S * M_p,b)
-    covered_area = np.sum(m_s * m_p_b)
-    total_gt_area = np.sum(m_s)
-
-    if total_gt_area == 0:
-        return 0.0
-
-    # Fraction of covered area
-    return float(covered_area / total_gt_area)
+    mp = _compose_pred_count(pred_masks, gt_ssu_map.shape)
+    mpb = mp > 0
+    covered_area = int(np.sum(ms & mpb))
+    return float(covered_area / a_s)
 
 
 def overlap(
-    predicted_regions: Iterable[InputBox],
-    ground_truth_regions: Iterable[InputBox],
-    image_width: int,
-    image_height: int,
-    box_format: Optional[str] = None,
+    gt_ssu_map: np.ndarray,
+    preds: Sequence[Union[np.ndarray, MaskInstance]],
 ) -> float:
     """
     Calculate overlap metric between predicted regions.
@@ -83,40 +122,26 @@ def overlap(
     more than one prediction) within the ground truth to total ground truth area.
 
     Args:
-        predicted_regions: List of predicted bounding boxes.
-        ground_truth_regions: List of ground truth bounding boxes.
-        image_width: Width of the image.
-        image_height: Height of the image.
-        box_format: Format string for inputs.
+        gt_ssu_map: 2D integer array of SSU ids. Background must be 0.
+        preds: Sequence of prediction masks (2D numpy arrays) or MaskInstance.
+            Each mask must have the same shape as gt_ssu_map.
 
     Returns:
         Overlap score (O_raw). 0 means no redundancy.
     """
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
-
-    if not ground_truth_regions:
+    gt_ssu_map = _check_gt_map(gt_ssu_map)
+    pred_masks = _as_pred_masks(preds)
+    ms = _ms_mask(gt_ssu_map)
+    a_s = _area_s(ms)
+    if a_s == 0:
         return 0.0
-
-    # M_S (binary)
-    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
-    total_gt_area = np.sum(m_s)
-
-    if total_gt_area == 0:
+    if not pred_masks:
         return 0.0
-
-    # M_p (count) and M_p,b (binary)
-    m_p = _create_mask(predicted_regions, (image_height, image_width), binary=False)
-    m_p_b = (m_p > 0).astype(np.int32)
-
-    # O_raw = Sum(M_S * (M_p - M_p,b)) / A_S
-    redundancy_mask = m_p - m_p_b
-    weighted_redundancy = m_s * redundancy_mask
-    overlap_area = np.sum(weighted_redundancy)
-
-    o_raw = overlap_area / total_gt_area
-
-    return float(o_raw)
+    mp = _compose_pred_count(pred_masks, gt_ssu_map.shape)
+    mpb = (mp > 0).astype(np.int32)
+    redundancy = mp - mpb
+    overlap_area = int(np.sum(ms.astype(np.int32) * redundancy))
+    return float(overlap_area / a_s)
 
 
 def iou(box1: BBox, box2: BBox) -> float:
@@ -168,86 +193,42 @@ def mean_iou(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) ->
 
 
 def trespass(
-    predicted_regions: Iterable[InputBox],
-    ground_truth_regions: Iterable[InputBox],
-    image_width: int,
-    image_height: int,
-    box_format: Optional[str] = None,
+    gt_ssu_map: np.ndarray,
+    preds: Sequence[Union[np.ndarray, MaskInstance]],
 ) -> float:
     """
     Trespass measures how much of the ground truth is covered by a prediction
     that belongs to a different SSU (Ground Truth Region).
 
     Args:
-        predicted_regions: List of predicted bounding boxes.
-        ground_truth_regions: List of ground truth bounding boxes, typically these will represent SSU.
-        image_width: Width of the image.
-        image_height: Height of the image.
-        box_format: Format string for inputs.
+        gt_ssu_map: 2D integer array of SSU ids. Background must be 0.
+        preds: Sequence of prediction masks (2D numpy arrays) or MaskInstance.
+            Each mask must have the same shape as gt_ssu_map.
 
     Returns:
         Trespass score (T_raw). Fraction of GT area invaded by non-owner predictions.
     """
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
-
-    n = len(predicted_regions)
-    if n == 0 or len(ground_truth_regions) == 0:
+    gt_ssu_map = _check_gt_map(gt_ssu_map)
+    pred_masks = _as_pred_masks(preds)
+    ms = _ms_mask(gt_ssu_map)
+    a_s = _area_s(ms)
+    if a_s == 0:
         return 0.0
-
-    # Calculate total GT area
-    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
-    total_gt_area = np.sum(m_s)
-    if total_gt_area == 0:
+    if not pred_masks:
         return 0.0
-
-    # Create individual GT masks as these are used for each prediction
-    gt_masks = [_create_mask([gt], (image_height, image_width), binary=True)
-                for gt in ground_truth_regions]
-
-    total_trespass_area = 0.0
-
-    for pred in predicted_regions:
-        # Create mask for this prediction
-        pred_mask = _create_mask([pred], (image_height, image_width), binary=True)
-
-        # Find owner GT (max intersection)
-        best_gt_idx = -1
-        max_inter_area = 0.0
-
-        for i, gt_mask in enumerate(gt_masks):
-            # The element wise product of the pred and gt aka the intersection
-            inter_area = np.sum(pred_mask & gt_mask)
-            if inter_area > max_inter_area:
-                max_inter_area = inter_area
-                best_gt_idx = i
-
-        if best_gt_idx == -1:
-            # No intersection with any GT - NO trespass (just skip)
+    total_trespass_pixels = 0
+    for pm in pred_masks:
+        owner = _owner_ssu_id(gt_ssu_map, pm)
+        if owner is None:
             continue
-
-        # Create mask of all GTs EXCEPT the owner
-        m_s_excl_owner = np.zeros_like(m_s, dtype=bool)
-        for i, gt_mask in enumerate(gt_masks):
-            if i != best_gt_idx:
-                #creating the OR mask of all gt EXCEPT the owner
-                m_s_excl_owner |= gt_mask.astype(bool)
-
-        # Trespass area = intersection of pred with non-owner GTs
-        trespass_area = np.sum(pred_mask & m_s_excl_owner)
-        total_trespass_area += trespass_area
-
-    T_raw = total_trespass_area / total_gt_area
-
-    return float(T_raw)
+        trespass_pixels = int(np.sum(pm & ms & (gt_ssu_map != owner)))
+        total_trespass_pixels += trespass_pixels
+    return float(total_trespass_pixels / a_s)
 
 
 def excess(
-    predicted_regions: Iterable[InputBox],
-    ground_truth_regions: Iterable[InputBox],
-    image_width: int,
-    image_height: int,
-    box_format: Optional[str] = None,
+    gt_ssu_map: np.ndarray,
+    preds: Sequence[Union[np.ndarray, MaskInstance]],
 ) -> float:
     """
     Excess measures the amount of area covered by predictions that is not part
@@ -255,72 +236,51 @@ def excess(
     area to total white-space area.
 
     Args:
-        predicted_regions: List of predicted bounding boxes.
-        ground_truth_regions: List of ground truth bounding boxes.
-        image_width: Width of the image.
-        image_height: Height of the image.
-        box_format: Format string for inputs.
+        gt_ssu_map: 2D integer array of SSU ids. Background must be 0.
+        preds: Sequence of prediction masks (2D numpy arrays) or MaskInstance.
+            Each mask must have the same shape as gt_ssu_map.
 
     Returns:
         Excess score [0.0, 1.0].
     """
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
-
-    if not predicted_regions:
+    gt_ssu_map = _check_gt_map(gt_ssu_map)
+    pred_masks = _as_pred_masks(preds)
+    if not pred_masks:
         return 0.0
-
-    # Masks
-    m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
-    m_p_b = _create_mask(predicted_regions, (image_height, image_width), binary=True)
-
-    total_image_area = image_width * image_height
-    total_gt_area = np.sum(m_s)
-    white_space_area = total_image_area - total_gt_area
-
+    ms = _ms_mask(gt_ssu_map)
+    mp = _compose_pred_count(pred_masks, gt_ssu_map.shape)
+    mpb = mp > 0
+    n_mask = ~ms
+    white_space_area = int(np.sum(n_mask))
     if white_space_area <= 0:
         return 0.0
-
-    # N = White Space Mask = 1 - M_S
-    n_mask = 1 - m_s
-
-    # E_raw = Sum(N * M_p,b) / A_N
-    excess_area = np.sum(n_mask * m_p_b)
-
+    excess_area = int(np.sum(n_mask & mpb))
     e_val = excess_area / white_space_area
-
     return min(1.0, max(0.0, float(e_val)))
 
 
 def cote_score(
-    predicted_regions: Iterable[InputBox],
-    ground_truth_regions: Iterable[InputBox],
-    image_width: int,
-    image_height: int,
+    gt_ssu_map: np.ndarray,
+    preds: Sequence[Union[np.ndarray, MaskInstance]],
     weight_coverage: float = 1.0,
     weight_overlap: float = 1.0,
     weight_trespass: float = 1.0,
-    box_format: Optional[str] = None,
 ) -> Tuple[float, float, float, float, float]:
     """
     The COTe score decomposition.
     """
-    # Standardize inputs
-    predicted_regions = _standardize_input_format(predicted_regions, box_format)
-    ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
-    n = len(predicted_regions)
-
-    C = coverage(predicted_regions, ground_truth_regions, image_width, image_height)
-    T = trespass(predicted_regions, ground_truth_regions, image_width, image_height)
-
+    gt_ssu_map = _check_gt_map(gt_ssu_map)
+    pred_masks = _as_pred_masks(preds)
+    n = len(pred_masks)
+    C = coverage(gt_ssu_map, pred_masks)
+    T = trespass(gt_ssu_map, pred_masks)
     if n <= 1:
         O = 0.0
     else:
-        O = overlap(predicted_regions, ground_truth_regions, image_width, image_height)
-
-    E = excess(predicted_regions, ground_truth_regions, image_width, image_height)
+        O = overlap(gt_ssu_map, pred_masks)
+    E = excess(gt_ssu_map, pred_masks)
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
-    return (cot, C, O, T, float(E))
+    return (float(cot), float(C), float(O), float(T), float(E))
 
 # =============================================================================
 # The Character Distribution Divergence
@@ -547,7 +507,7 @@ __all__ = [
     "mean_iou",
     "trespass",
     "excess",
-    "cot_score",
+    "cote_score",
 ]
 
 

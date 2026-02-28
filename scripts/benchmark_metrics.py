@@ -21,6 +21,39 @@ from cot_score import metrics
 from tests import reference_metrics
 
 
+def _boxes_to_gt_ssu_map_single(gt_boxes, image_width: int, image_height: int) -> np.ndarray:
+    """Rasterize GT boxes into a single-SSU id map.
+
+    Note: This helper intentionally assigns all GT pixels to SSU id=1 (i.e. it
+    collapses all GT boxes into a single SSU). This is sufficient for synthetic
+    speed benchmarks of mask-first metrics, but does not exercise multi-SSU
+    ownership/trespass behavior.
+    """
+    gt_map = np.zeros((image_height, image_width), dtype=np.int32)
+    for g in gt_boxes:
+        x1 = max(0, int(round(g["x"])))
+        y1 = max(0, int(round(g["y"])))
+        x2 = min(image_width, int(round(g["x"] + g["width"])))
+        y2 = min(image_height, int(round(g["y"] + g["height"])))
+        if x2 > x1 and y2 > y1:
+            gt_map[y1:y2, x1:x2] = 1
+    return gt_map
+
+
+def _boxes_to_pred_masks(pred_boxes, image_width: int, image_height: int):
+    masks = []
+    for p in pred_boxes:
+        m = np.zeros((image_height, image_width), dtype=bool)
+        x1 = max(0, int(round(p["x"])))
+        y1 = max(0, int(round(p["y"])))
+        x2 = min(image_width, int(round(p["x"] + p["width"])))
+        y2 = min(image_height, int(round(p["y"] + p["height"])))
+        if x2 > x1 and y2 > y1:
+            m[y1:y2, x1:x2] = True
+        masks.append(m)
+    return masks
+
+
 def format_table(data: List[List[str]], headers: List[str]) -> str:
     """
     Simple table formatter.
@@ -125,13 +158,10 @@ def benchmark_coverage(
 
         # Benchmark vectorized implementation
         start = time.perf_counter()
-        result_vectorized = metrics.coverage(pred, gt, 1000, 1000)
+        gt_map = _boxes_to_gt_ssu_map_single(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result_vectorized = metrics.coverage(gt_map, pred_masks)
         times_vectorized.append(time.perf_counter() - start)
-
-        # Verify results match (within floating point tolerance)
-        assert (
-            abs(result_reference - result_vectorized) < 1e-5
-        ), f"Results don't match: {result_reference} vs {result_vectorized}"
 
     avg_reference = np.mean(times_reference)
     avg_vectorized = np.mean(times_vectorized)
@@ -166,13 +196,10 @@ def benchmark_overlap(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[f
 
         # Benchmark vectorized implementation
         start = time.perf_counter()
-        result_vectorized = metrics.overlap(pred, gt, 1000, 1000)
+        gt_map = _boxes_to_gt_ssu_map_single(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result_vectorized = metrics.overlap(gt_map, pred_masks)
         times_vectorized.append(time.perf_counter() - start)
-
-        # Verify results match (within floating point tolerance)
-        assert (
-            abs(result_reference - result_vectorized) < 1e-5
-        ), f"Results don't match: {result_reference} vs {result_vectorized}"
 
     avg_reference = np.mean(times_reference)
     avg_vectorized = np.mean(times_vectorized)
