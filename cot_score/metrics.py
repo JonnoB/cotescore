@@ -25,7 +25,6 @@ def coverage(
     image_width: int,
     image_height: int,
     box_format: Optional[str] = None,
-    return_raw: bool = False,
 ) -> float:
     """
     Calculate coverage metric between predicted and ground truth regions.
@@ -40,21 +39,18 @@ def coverage(
         image_width: Width of the image (required for mask creation).
         image_height: Height of the image (required for mask creation).
         box_format: Format string for input boxes.
-        return_raw: If True, return (covered_area, total_gt_area) tuple.
 
     Returns:
-        Coverage score [0.0, 1.0] or raw values.
+        Coverage score [0.0, 1.0].
     """
     predicted_regions = _standardize_input_format(predicted_regions, box_format)
     ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
     if not ground_truth_regions:
-        val = 1.0 if not predicted_regions else 0.0
-        return (0.0, 0.0) if return_raw else val
+        return 1.0 if not predicted_regions else 0.0
 
     if not predicted_regions:
-        total_gt_area = sum(gt["width"] * gt["height"] for gt in ground_truth_regions)
-        return (0.0, total_gt_area) if return_raw else 0.0
+        return 0.0
 
     # Vectorized implementation
     # M_S (binary)
@@ -67,10 +63,8 @@ def coverage(
     total_gt_area = np.sum(m_s)
 
     if total_gt_area == 0:
-        return (0.0, 0.0) if return_raw else 0.0
+        return 0.0
 
-    if return_raw:
-        return float(covered_area), float(total_gt_area)
     # Fraction of covered area
     return float(covered_area / total_gt_area)
 
@@ -81,10 +75,12 @@ def overlap(
     image_width: int,
     image_height: int,
     box_format: Optional[str] = None,
-    return_raw: bool = False,
 ) -> float:
     """
     Calculate overlap metric between predicted regions.
+
+    Overlap is the ratio of redundant prediction area (pixels covered by
+    more than one prediction) within the ground truth to total ground truth area.
 
     Args:
         predicted_regions: List of predicted bounding boxes.
@@ -92,42 +88,33 @@ def overlap(
         image_width: Width of the image.
         image_height: Height of the image.
         box_format: Format string for inputs.
-        return_raw: If True, return (O_raw, normalization_factor)
 
     Returns:
-        Overlap score.
+        Overlap score (O_raw). 0 means no redundancy.
     """
     predicted_regions = _standardize_input_format(predicted_regions, box_format)
     ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
-    n = len(predicted_regions)
-
     if not ground_truth_regions:
-        return (0.0, 1.0) if return_raw else 0.0
+        return 0.0
 
     # M_S (binary)
     m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
     total_gt_area = np.sum(m_s)
 
     if total_gt_area == 0:
-        return (0.0, 1.0) if return_raw else 0.0
+        return 0.0
 
     # M_p (count) and M_p,b (binary)
     m_p = _create_mask(predicted_regions, (image_height, image_width), binary=False)
     m_p_b = (m_p > 0).astype(np.int32)
 
     # O_raw = Sum(M_S * (M_p - M_p,b)) / A_S
-    # We calculate the numerator first: Sum(M_S * (M_p - M_p,b))
     redundancy_mask = m_p - m_p_b
     weighted_redundancy = m_s * redundancy_mask
     overlap_area = np.sum(weighted_redundancy)
 
-    # O_raw
     o_raw = overlap_area / total_gt_area
-
-    # Final O is just O_raw
-    if return_raw:
-        return float(o_raw), float(n - 1)
 
     return float(o_raw)
 
@@ -186,7 +173,6 @@ def trespass(
     image_width: int,
     image_height: int,
     box_format: Optional[str] = None,
-    return_raw: bool = False,
 ) -> float:
     """
     Trespass measures how much of the ground truth is covered by a prediction
@@ -198,23 +184,22 @@ def trespass(
         image_width: Width of the image.
         image_height: Height of the image.
         box_format: Format string for inputs.
-        return_raw: If True, return (T_raw, 1.0) tuple, else return T_raw.
 
     Returns:
-        Trespass score.
+        Trespass score (T_raw). Fraction of GT area invaded by non-owner predictions.
     """
     predicted_regions = _standardize_input_format(predicted_regions, box_format)
     ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
     n = len(predicted_regions)
     if n == 0 or len(ground_truth_regions) == 0:
-        return (0.0, 1.0) if return_raw else 0.0
+        return 0.0
 
     # Calculate total GT area
     m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
     total_gt_area = np.sum(m_s)
     if total_gt_area == 0:
-        return (0.0, 1.0) if return_raw else 0.0
+        return 0.0
 
     # Create individual GT masks as these are used for each prediction
     gt_masks = [_create_mask([gt], (image_height, image_width), binary=True)
@@ -254,10 +239,6 @@ def trespass(
 
     T_raw = total_trespass_area / total_gt_area
 
-    if return_raw:
-        # Compatibility
-        return float(T_raw), 1.0
-
     return float(T_raw)
 
 
@@ -267,11 +248,11 @@ def excess(
     image_width: int,
     image_height: int,
     box_format: Optional[str] = None,
-    return_raw: bool = False,
 ) -> float:
     """
     Excess measures the amount of area covered by predictions that is not part
-    of any ground truth region (SSU). It is normalized by the white space area.
+    of any ground truth region (SSU). It is the ratio of predicted white-space
+    area to total white-space area.
 
     Args:
         predicted_regions: List of predicted bounding boxes.
@@ -281,13 +262,13 @@ def excess(
         box_format: Format string for inputs.
 
     Returns:
-        Excess score.
+        Excess score [0.0, 1.0].
     """
     predicted_regions = _standardize_input_format(predicted_regions, box_format)
     ground_truth_regions = _standardize_input_format(ground_truth_regions, box_format)
 
     if not predicted_regions:
-        return (0.0, 1.0) if return_raw else 0.0
+        return 0.0
 
     # Masks
     m_s = _create_mask(ground_truth_regions, (image_height, image_width), binary=True)
@@ -298,19 +279,15 @@ def excess(
     white_space_area = total_image_area - total_gt_area
 
     if white_space_area <= 0:
-        return (0.0, 1.0) if return_raw else 0.0
+        return 0.0
 
     # N = White Space Mask = 1 - M_S
     n_mask = 1 - m_s
 
     # E_raw = Sum(N * M_p,b) / A_N
-    # Intersection of whitespace and predictions
     excess_area = np.sum(n_mask * m_p_b)
 
     e_val = excess_area / white_space_area
-
-    if return_raw:
-        return float(excess_area), float(white_space_area)
 
     return min(1.0, max(0.0, float(e_val)))
 
