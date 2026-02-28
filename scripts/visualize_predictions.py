@@ -21,7 +21,7 @@ sys.path.insert(0, str(project_root))
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
 from cot_score.dataset import NCSEDataset
-from cot_score.metrics import mean_iou, coverage, overlap, trespass, excess, cot_score
+from cot_score.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
 
 COLORS = {
     "ground_truth": (0, 255, 0),
@@ -112,16 +112,16 @@ def create_comparison_image(
         "overlap": "Prediction duplicates",
         "trespass": "Wrong GT overlap",
         "excess": "Background coverage",
-        "cot_score": "Overall quality (C-O-T)",
+        "cote_score": "Overall quality (C-O-T)",
     }
 
     # Define metric order for display
-    metric_order = ["cot_score", "coverage", "overlap", "trespass", "excess", "mean_iou"]
+    metric_order = ["cote_score", "coverage", "overlap", "trespass", "excess", "mean_iou"]
     sorted_metrics = {k: metrics[k] for k in metric_order if k in metrics}
 
     for metric, score in sorted_metrics.items():
         # Color coding based on metric type
-        if metric == "cot_score":
+        if metric == "cote_score":
             # COT score: green if > 0.7, red if < 0, yellow otherwise
             if score > 0.7:
                 color = COLORS["ground_truth"]
@@ -145,7 +145,7 @@ def create_comparison_image(
             )
 
         # Format score with sign for COT score
-        if metric == "cot_score":
+        if metric == "cote_score":
             score_str = f"{score:+.4f}"
         else:
             score_str = f"{score:.4f}"
@@ -281,7 +281,7 @@ def main():
             "overlap": overlap(predictions, ground_truth, image_width, image_height),
             "trespass": trespass(predictions, ground_truth, image_width, image_height),
             "excess": excess(predictions, ground_truth, image_width, image_height),
-            "cot_score": cot_score(predictions, ground_truth, image_width, image_height)[
+            "cot_score": cote_score(predictions, ground_truth, image_width, image_height)[
                 0
             ],  # Unpack tuple
         }

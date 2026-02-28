@@ -107,20 +107,46 @@ def main():
     print("\n" + "=" * 75)
     print("COMPARATIVE SUMMARY")
     print("=" * 75)
-    print(f"{'Metric':<20} | {'YOLO':<15} | {'Heron':<15} | {'PPDocLayout':<15}")
+    print(f"{'Metric':<20} | {'YOLO':<12} | {'Heron':<12} | {'PPDocLayout':<12}")
     print("-" * 75)
 
-    metrics = ["map", "mean_iou", "coverage", "overlap"]
+    metrics = [
+        "map",
+        "map_50",
+        "map_75",
+        "mean_iou",
+        "coverage",
+        "overlap",
+        "trespass",
+        "excess",
+        "cot_score",
+    ]
+    metric_labels = {
+        "map": "mAP (COCO)",
+        "map_50": "mAP@50",
+        "map_75": "mAP@75",
+        "mean_iou": "Mean IoU",
+        "coverage": "Coverage",
+        "overlap": "Overlap",
+        "trespass": "Trespass",
+        "excess": "Excess",
+        "cot_score": "COT Score",
+    }
     for metric in metrics:
         yolo_score = all_results["models"].get("DocLayout-YOLO", {}).get(metric, "N/A")
         heron_score = all_results["models"].get("DoclingLayoutHeron", {}).get(metric, "N/A")
         ppdoc_score = all_results["models"].get("PPDocLayout", {}).get(metric, "N/A")
 
-        yolo_str = f"{yolo_score:.4f}" if isinstance(yolo_score, float) else str(yolo_score)
-        heron_str = f"{heron_score:.4f}" if isinstance(heron_score, float) else str(heron_score)
-        ppdoc_str = f"{ppdoc_score:.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
+        if metric == "cot_score":
+            yolo_str = f"{yolo_score:+.4f}" if isinstance(yolo_score, float) else str(yolo_score)
+            heron_str = f"{heron_score:+.4f}" if isinstance(heron_score, float) else str(heron_score)
+            ppdoc_str = f"{ppdoc_score:+.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
+        else:
+            yolo_str = f"{yolo_score:.4f}" if isinstance(yolo_score, float) else str(yolo_score)
+            heron_str = f"{heron_score:.4f}" if isinstance(heron_score, float) else str(heron_score)
+            ppdoc_str = f"{ppdoc_score:.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
 
-        print(f"{metric:<20} | {yolo_str:<15} | {heron_str:<15} | {ppdoc_str:<15}")
+        print(f"{metric_labels[metric]:<20} | {yolo_str:<12} | {heron_str:<12} | {ppdoc_str:<12}")
     print("=" * 75)
 
 

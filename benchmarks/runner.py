@@ -90,7 +90,7 @@ class BenchmarkRunner:
             Dictionary containing evaluation results
         """
         if metrics is None:
-            metrics = ["mean_iou", "coverage", "overlap", "trespass", "cot_score", "map"]
+            metrics = ["mean_iou", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
 
         logger.info(f"Loading NCSE dataset from {self.dataset_path}")
         dataset = NCSEDataset(self.dataset_path, split="test")
@@ -168,6 +168,8 @@ class BenchmarkRunner:
                     score = overlap(predictions, ground_truth, image_width, image_height)
                 elif metric_name == "trespass":
                     score = trespass(predictions, ground_truth, image_width, image_height)
+                elif metric_name == "excess":
+                    score = excess(predictions, ground_truth, image_width, image_height)
                 elif metric_name == "cot_score":
                     score = cot_score(predictions, ground_truth, image_width, image_height)[0]  # Unpack tuple
                 else:
@@ -196,14 +198,6 @@ class BenchmarkRunner:
             results["metrics"]["map_75"] = map_scores["map_75"]
             if "classes" in map_scores:
                 results["classes"] = map_scores["classes"]
-
-        # Measure Latency (on first image as sample)
-        try:
-            sample_img = Path(dataset[0]["image_path"])
-            latency_stats = self.measure_latency(model, sample_img)
-            results["metrics"].update(latency_stats)
-        except Exception as e:
-            logger.warning(f"Failed to measure latency: {e}")
 
         return results
 

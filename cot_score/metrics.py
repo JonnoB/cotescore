@@ -125,11 +125,11 @@ def overlap(
     # O_raw
     o_raw = overlap_area / total_gt_area
 
-    # Final O = O_raw / (n - 1)
+    # Final O is just O_raw
     if return_raw:
         return float(o_raw), float(n - 1)
 
-    return min(1.0, max(0.0, float(o_raw / (n - 1))))
+    return float(o_raw)
 
 
 def iou(box1: BBox, box2: BBox) -> float:
@@ -217,7 +217,7 @@ def trespass(
         return (0.0, 1.0) if return_raw else 0.0
 
     # Create individual GT masks as these are used for each prediction
-    gt_masks = [_create_mask([gt], (image_height, image_width), binary=True) 
+    gt_masks = [_create_mask([gt], (image_height, image_width), binary=True)
                 for gt in ground_truth_regions]
 
     total_trespass_area = 0.0
@@ -225,40 +225,39 @@ def trespass(
     for pred in predicted_regions:
         # Create mask for this prediction
         pred_mask = _create_mask([pred], (image_height, image_width), binary=True)
-        
+
         # Find owner GT (max intersection)
         best_gt_idx = -1
         max_inter_area = 0.0
-        
+
         for i, gt_mask in enumerate(gt_masks):
             # The element wise product of the pred and gt aka the intersection
             inter_area = np.sum(pred_mask & gt_mask)
             if inter_area > max_inter_area:
                 max_inter_area = inter_area
                 best_gt_idx = i
-        
+
         if best_gt_idx == -1:
             # No intersection with any GT - NO trespass (just skip)
             continue
-        
+
         # Create mask of all GTs EXCEPT the owner
         m_s_excl_owner = np.zeros_like(m_s, dtype=bool)
         for i, gt_mask in enumerate(gt_masks):
             if i != best_gt_idx:
                 #creating the OR mask of all gt EXCEPT the owner
                 m_s_excl_owner |= gt_mask.astype(bool)
-        
+
         # Trespass area = intersection of pred with non-owner GTs
         trespass_area = np.sum(pred_mask & m_s_excl_owner)
         total_trespass_area += trespass_area
 
-    # Raw trespass score (as per formula)
     T_raw = total_trespass_area / total_gt_area
-    # I have removed normalisation for now as it isb't used we can create a more stable solution once we understand
-    # everything more clealy
+
     if return_raw:
+        # Compatibility
         return float(T_raw), 1.0
-    
+
     return float(T_raw)
 
 
@@ -335,12 +334,12 @@ def cote_score(
     n = len(predicted_regions)
 
     C = coverage(predicted_regions, ground_truth_regions, image_width, image_height)
-    T,_ = trespass(predicted_regions, ground_truth_regions, image_width, image_height, return_raw=True)
+    T = trespass(predicted_regions, ground_truth_regions, image_width, image_height)
 
     if n <= 1:
         O = 0.0
     else:
-        O,_ = overlap(predicted_regions, ground_truth_regions, image_width, image_height, return_raw=True)
+        O = overlap(predicted_regions, ground_truth_regions, image_width, image_height)
 
     E = excess(predicted_regions, ground_truth_regions, image_width, image_height)
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
@@ -382,7 +381,7 @@ def jensen_shannon_divergence(p, q):
         p = p / p.sum()
     if not np.isclose(q.sum(), 1.0) and q.sum() > 0:
         q = q / q.sum()
-        
+
     # Handle cases where a distribution might be all zeros after initial conversion (e.g., empty text)
     # If a distribution sums to 0, it means it has no characters, so its probabilities are all 0.
     # The JSD definition assumes valid probability distributions.
@@ -397,7 +396,7 @@ def jensen_shannon_divergence(p, q):
 
     m = 0.5 * (p + q)
     jsd = shannon_entropy(m) - 0.5 * (shannon_entropy(p) + shannon_entropy(q))
-    
+
     return jsd
 
 # --- Optimized Character Distribution Divergence (CDD) Function ---
@@ -440,10 +439,10 @@ def cdd(gt_text_list, ocr_text_list):
 
     gt_aligned_counts = np.array(gt_aligned_counts_list, dtype=int)
     ocr_aligned_counts = np.array(ocr_aligned_counts_list, dtype=int)
-    
+
     # 5. Create the character counts dictionary using a dictionary comprehension
     # This is also more efficient for constructing the dictionary.
-    char_counts_dict = {char: [gt_counts.get(char, 0), ocr_counts.get(char, 0)] 
+    char_counts_dict = {char: [gt_counts.get(char, 0), ocr_counts.get(char, 0)]
                         for char in all_unique_chars}
 
     # 6. Convert counts to probability distributions
@@ -454,7 +453,7 @@ def cdd(gt_text_list, ocr_text_list):
     # This means the distribution is effectively all zeros, which will result in 0 entropy.
     p_gt = gt_aligned_counts / gt_total if gt_total > 0 else np.zeros_like(gt_aligned_counts, dtype=float)
     p_ocr = ocr_aligned_counts / ocr_total if ocr_total > 0 else np.zeros_like(ocr_aligned_counts, dtype=float)
-    
+
     # 7. Calculate JSD
     cdd_value = np.sqrt(jensen_shannon_divergence(p_gt, p_ocr))
 
