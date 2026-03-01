@@ -8,9 +8,11 @@ This module centralizes common utilities used across runners, scripts, and tests
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+
+from cot_score.types import Label
 
 
 BBox = Dict[str, Any]
@@ -86,6 +88,30 @@ def boxes_to_pred_masks(
             m[y1:y2, x1:x2] = True
         masks.append(m)
     return masks
+
+
+def build_ssu_to_class(
+    gt_boxes: Sequence[BBox],
+    *,
+    class_key: str = "ssu_class",
+    ssu_id_key: str = "ssu_id",
+) -> Dict[int, Label]:
+    """Build a mapping from SSU id to class label from ground-truth annotation boxes.
+
+    Intended to be called with the same boxes passed to ``boxes_to_gt_ssu_map``,
+    producing the companion ``ssu_to_class`` dict required by the class-level
+    COTe metrics in ``class_metrics``.
+
+    Args:
+        gt_boxes: Ground-truth annotation boxes, each containing at minimum
+            ``ssu_id_key`` and ``class_key`` entries.
+        class_key: Key in each box dict that holds the class label.
+        ssu_id_key: Key in each box dict that holds the integer SSU id.
+
+    Returns:
+        Dict mapping integer SSU id → class label.
+    """
+    return {int(b[ssu_id_key]): b[class_key] for b in gt_boxes}
 
 
 def calculate_intersection_area(box1: BBox, box2: BBox) -> float:
