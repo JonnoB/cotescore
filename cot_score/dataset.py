@@ -8,6 +8,7 @@ NCSE v2.0 Dataset of OCR-Processed 19th Century English Newspapers.
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import re
+import json
 import logging
 import pandas as pd
 
@@ -201,6 +202,165 @@ class NCSEDataset:
             }
             annotations.append(annotation)
         return annotations
+
+    def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
+        if not self._loaded:
+            self.load()
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """
+        Get a sample from the dataset.
+
+        Args:
+            idx: Index of the sample
+
+        Returns:
+            Dictionary containing image path and annotations
+        """
+        if not self._loaded:
+            self.load()
+
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size " f"{len(self.images)}")
+
+        image_path = self.images[idx]
+        return {
+            "image_path": image_path,
+            "annotations": self.annotations_by_image[image_path],
+            "filename": Path(image_path).name,
+        }
+
+    def get_annotations(self, idx: int) -> List[Dict[str, Any]]:
+        """
+        Get ground truth annotations for a sample.
+
+        Args:
+            idx: Index of the sample
+
+        Returns:
+            List of ground truth regions with bounding boxes and labels
+        """
+        if not self._loaded:
+            self.load()
+
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size " f"{len(self.images)}")
+
+        return self.annotations_by_image[self.images[idx]]
+
+
+class DocLayNetDataset:
+    """Loader for the DocLayNet dataset using HuggingFace datasets."""
+
+    def __init__(
+        self,
+        dataset_path: Path,
+        split: str = "val",
+    ):
+        """
+        Initialize the DocLayNet dataset loader.
+
+        Args:
+            dataset_path: Path to store local downloaded representations of images for benchmarking.
+            split: Dataset split to load ('train', 'val', or 'test'). Note: HF dataset uses 'validation' for 'val'.
+        """
+        self.dataset_path = Path(dataset_path)
+
+        # DocLayNet HF uses 'validation' instead of 'val'
+        if split == "val":
+            self.split = "validation"
+        else:
+            self.split = split
+
+        if self.split not in ("train", "validation", "test"):
+            raise ValueError("Split must be one of 'train', 'val', or 'test'.")
+
+        self.images_dir = self.dataset_path / "PNG"
+
+        self.images = []
+        self.annotations_by_image = {}
+        self._loaded = False
+
+        # DocLayNet-v1.1 HF category ID mapping
+        self.category_names = {
+            1: "Caption",
+            2: "Footnote",
+            3: "Formula",
+            4: "List-item",
+            5: "Page-footer",
+            6: "Page-header",
+            7: "Picture",
+            8: "Section-header",
+            9: "Table",
+            10: "Text",
+            11: "Title"
+        }
+
+    def load(self):
+        """Load the dataset via HuggingFace datasets."""
+        if self._loaded:
+            return
+
+        import datasets
+
+        # We ensure the image directory exists
+        self.images_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Loading docling-project/DocLayNet-v1.1 {self.split} split...")
+        ds = datasets.load_dataset("docling-project/DocLayNet-v1.1", split=self.split)
+
+        for i, row in enumerate(ds):
+            # Row has: image, bboxes, category_id, area, metadata
+            metadata = row.get("metadata", {})
+            original_filename = metadata.get("original_filename", f"doclaynet_{self.split}_{i}.png")
+
+            # The name might be a .pdf in the metadata, ensure we save it as a .png
+            if not original_filename.lower().endswith('.png'):
+                original_filename += '.png'
+
+            image_path = self.images_dir / original_filename
+
+            # Save image if it doesn't exist
+            if not image_path.exists():
+                img = row["image"]
+                img.save(image_path)
+
+            self.images.append(str(image_path))
+
+            bboxes = row.get("bboxes", [])
+            categories = row.get("category_id", [])
+            areas = row.get("area", [])
+
+            annotations = []
+            for j in range(len(bboxes)):
+                # Bbox format in dataset is [xmin, ymin, xmax, ymax]
+                bbox = bboxes[j]
+                if len(bbox) != 4:
+                    continue
+
+                xmin, ymin, xmax, ymax = bbox[0], bbox[1], bbox[2], bbox[3]
+                width = xmax - xmin
+                height = ymax - ymin
+
+                cat_id = categories[j] if j < len(categories) else 0
+                class_name = self.category_names.get(cat_id, str(cat_id))
+                area = areas[j] if j < len(areas) else (width * height)
+
+                annotations.append({
+                    "x": float(xmin),
+                    "y": float(ymin),
+                    "width": float(width),
+                    "height": float(height),
+                    "class": class_name,
+                    "confidence": 1.0,
+                    "area": float(area)
+                })
+
+            self.annotations_by_image[str(image_path)] = annotations
+
+        self._loaded = True
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
