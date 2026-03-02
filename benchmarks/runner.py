@@ -14,7 +14,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from cot_score.dataset import NCSEDataset
+from cot_score.dataset import NCSEDataset, DocLayNetDataset
 from cot_score.metrics import coverage, overlap, trespass, excess, cote_score as cot_score, mean_iou
 from cot_score.map_metric import MAPMetric
 from PIL import Image
@@ -23,20 +23,21 @@ logger = logging.getLogger(__name__)
 
 
 class BenchmarkRunner:
-    """Orchestrates model evaluation on the NCSE dataset."""
+    """Orchestrates model evaluation on layout datasets."""
 
     def __init__(self, dataset_path: Path, output_path: Path,
                  csv_filename: str = None, images_subdir: str = None,
-                 image_ext: str = "png"):
+                 image_ext: str = "png", dataset_name: str = "ncse"):
         """
         Initialize the benchmark runner.
 
         Args:
             dataset_path: Path to dataset
             output_path: Path where results will be saved
-            csv_filename: Name of the annotations CSV file
-            images_subdir: Name of the images subdirectory
-            image_ext: Image file extension to glob for
+            csv_filename: Name of the annotations CSV file (for NCSE)
+            images_subdir: Name of the images subdirectory (for NCSE)
+            image_ext: Image file extension to glob for (for NCSE)
+            dataset_name: Type of dataset to load ('ncse' or 'doclaynet')
         """
         self.dataset_path = Path(dataset_path)
         self.output_path = Path(output_path)
@@ -44,6 +45,7 @@ class BenchmarkRunner:
         self.csv_filename = csv_filename
         self.images_subdir = images_subdir
         self.image_ext = image_ext
+        self.dataset_name = dataset_name.lower()
 
     def measure_latency(
         self, model, sample_image_path: Path, warmup: int = 10, repeats: int = 50
@@ -100,13 +102,22 @@ class BenchmarkRunner:
         if metrics is None:
             metrics = ["mean_iou", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
 
-        logger.info(f"Loading NCSE dataset from {self.dataset_path}")
-        dataset = NCSEDataset(
-            self.dataset_path, split="test",
-            csv_filename=self.csv_filename,
-            images_subdir=self.images_subdir,
-            image_ext=self.image_ext,
-        )
+        logger.info(f"Loading {self.dataset_name.upper()} dataset from {self.dataset_path}")
+
+        if self.dataset_name == "ncse":
+            dataset = NCSEDataset(
+                self.dataset_path, split="test",
+                csv_filename=self.csv_filename,
+                images_subdir=self.images_subdir,
+                image_ext=self.image_ext,
+            )
+        elif self.dataset_name == "doclaynet":
+            dataset = DocLayNetDataset(
+                self.dataset_path, split="test"
+            )
+        else:
+            raise ValueError(f"Unknown dataset_name: {self.dataset_name}")
+
         dataset.load()
         logger.info(f"Dataset loaded: {len(dataset)} images")
 
@@ -118,16 +129,15 @@ class BenchmarkRunner:
 
         results = {
             "model": model.model_name,
-            "dataset": "NCSE_v2_test",
+            "dataset": f"{self.dataset_name.upper()}_test",
             "num_images": len(dataset),
             "metrics": {},
             "per_image_results": [],
             "classes": {},
         }
 
-        # Class Mapping for NCSE
-        # NCSE GT has: 'plain text', 'figure'
-        # Models produce: 'Title', 'Text', 'Table', 'Figure', 'Page-header', etc.
+        # Class Mapping
+        # For simplicity, we map visual elements to 'figure' and textual ones to 'plain text'
         def map_class(cls_name):
             cls_lower = str(cls_name).lower()
             if cls_lower in ["figure", "image", "picture"]:

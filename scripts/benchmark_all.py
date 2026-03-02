@@ -33,13 +33,20 @@ def main():
         "--dataset",
         type=str,
         default="data/ncse",
-        help="Path to NCSE dataset directory",
+        help="Path to dataset directory (default: data/ncse for NCSE, use /teamspace/lightning_storage/doclayout for DocLayNet)",
     )
     parser.add_argument(
         "--output",
         type=str,
         default="results",
-        help="Path to output directory",
+        help="Path to output directory (default: results)",
+    )
+    parser.add_argument(
+        "--dataset-name",
+        type=str,
+        default="ncse",
+        choices=["ncse", "doclaynet"],
+        help="Type of dataset to benchmark (default: ncse)",
     )
     parser.add_argument(
         "--models",
@@ -82,6 +89,7 @@ def main():
         csv_filename=args.csv_filename,
         images_subdir=args.images_subdir,
         image_ext=args.image_ext,
+        dataset_name=args.dataset_name,
     )
 
     all_results = {"timestamp": datetime.now().isoformat(), "models": {}}

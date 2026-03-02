@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class DoclingLayoutHeron(LayoutModel):
     """Docling Layout Heron model for document layout analysis."""
 
-    DEFAULT_MODEL = "ds4sd/docling-layout-heron"
+    DEFAULT_MODEL = "docling-project/docling-layout-heron"
 
     # Class mapping provided by the user
     CLASSES_MAP = {

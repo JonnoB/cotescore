@@ -256,7 +256,7 @@ class DocLayNetDataset:
 
     def __init__(
         self,
-        dataset_path: Path,
+        dataset_path: Path = Path("/teamspace/lightning_storage/doclayout"),
         split: str = "val",
     ):
         """
@@ -264,6 +264,7 @@ class DocLayNetDataset:
 
         Args:
             dataset_path: Path to store local downloaded representations of images for benchmarking.
+                Defaults to /teamspace/lightning_storage/doclayout.
             split: Dataset split to load ('train', 'val', or 'test'). Note: HF dataset uses 'validation' for 'val'.
         """
         self.dataset_path = Path(dataset_path)
@@ -308,8 +309,16 @@ class DocLayNetDataset:
         # We ensure the image directory exists
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Loading docling-project/DocLayNet-v1.1 {self.split} split...")
-        ds = datasets.load_dataset("docling-project/DocLayNet-v1.1", split=self.split)
+        logger.info(f"Loading docling-project/DocLayNet-v1.2 {self.split} split...")
+        # Only download the specific split's parquet files via data_files.
+        # We use split="train" as the virtual key and verification_mode="no_checks"
+        # to prevent the library from downloading all splits.
+        ds = datasets.load_dataset(
+            "docling-project/DocLayNet-v1.2",
+            data_files=f"data/{self.split}-*.parquet",
+            split="train",
+            verification_mode="no_checks",
+        )
 
         for i, row in enumerate(ds):
             # Row has: image, bboxes, category_id, area, metadata
@@ -335,24 +344,22 @@ class DocLayNetDataset:
 
             annotations = []
             for j in range(len(bboxes)):
-                # Bbox format in dataset is [xmin, ymin, xmax, ymax]
+                # Bbox format in DocLayNet is COCO: [x, y, width, height]
                 bbox = bboxes[j]
                 if len(bbox) != 4:
                     continue
 
-                xmin, ymin, xmax, ymax = bbox[0], bbox[1], bbox[2], bbox[3]
-                width = xmax - xmin
-                height = ymax - ymin
+                x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
 
                 cat_id = categories[j] if j < len(categories) else 0
                 class_name = self.category_names.get(cat_id, str(cat_id))
-                area = areas[j] if j < len(areas) else (width * height)
+                area = areas[j] if j < len(areas) else (w * h)
 
                 annotations.append({
-                    "x": float(xmin),
-                    "y": float(ymin),
-                    "width": float(width),
-                    "height": float(height),
+                    "x": float(x),
+                    "y": float(y),
+                    "width": float(w),
+                    "height": float(h),
                     "class": class_name,
                     "confidence": 1.0,
                     "area": float(area)
