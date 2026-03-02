@@ -25,9 +25,15 @@ logger = logging.getLogger(__name__)
 class BenchmarkRunner:
     """Orchestrates model evaluation on layout datasets."""
 
-    def __init__(self, dataset_path: Path, output_path: Path,
-                 csv_filename: str = None, images_subdir: str = None,
-                 image_ext: str = "png", dataset_name: str = "ncse"):
+    def __init__(
+        self,
+        dataset_path: Path,
+        output_path: Path,
+        csv_filename: str = None,
+        images_subdir: str = None,
+        image_ext: str = "png",
+        dataset_name: str = "ncse",
+    ):
         """
         Initialize the benchmark runner.
 
@@ -106,15 +112,14 @@ class BenchmarkRunner:
 
         if self.dataset_name == "ncse":
             dataset = NCSEDataset(
-                self.dataset_path, split="test",
+                self.dataset_path,
+                split="test",
                 csv_filename=self.csv_filename,
                 images_subdir=self.images_subdir,
                 image_ext=self.image_ext,
             )
         elif self.dataset_name == "doclaynet":
-            dataset = DocLayNetDataset(
-                self.dataset_path, split="test"
-            )
+            dataset = DocLayNetDataset(self.dataset_path, split="test")
         else:
             raise ValueError(f"Unknown dataset_name: {self.dataset_name}")
 
@@ -194,7 +199,9 @@ class BenchmarkRunner:
                 elif metric_name == "excess":
                     score = excess(predictions, ground_truth, image_width, image_height)
                 elif metric_name == "cot_score":
-                    score = cot_score(predictions, ground_truth, image_width, image_height)[0]  # Unpack tuple
+                    score = cot_score(predictions, ground_truth, image_width, image_height)[
+                        0
+                    ]  # Unpack tuple
                 else:
                     logger.warning(f"Unknown per-image metric: {metric_name}")
                     score = 0.0

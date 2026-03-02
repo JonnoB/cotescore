@@ -212,7 +212,9 @@ def _load_ssu_regions_from_page_xml(xml_path: Path) -> tuple[Path | None, list[d
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Visualize SSU ground truth boxes for HNLA2013 PAGE XML")
+    parser = argparse.ArgumentParser(
+        description="Visualize SSU ground truth boxes for HNLA2013 PAGE XML"
+    )
     parser.add_argument(
         "--images-dir",
         type=Path,
@@ -225,8 +227,12 @@ def main() -> None:
         required=True,
         help="Directory containing PAGE XML with SSU custom tags (e.g. data/HNLA2013/groundtruth_with_ssu)",
     )
-    parser.add_argument("--output", type=Path, default=Path("data/visualizations_hnla_ssu"), help="Output directory")
-    parser.add_argument("--num-samples", type=int, default=20, help="How many pages to render (0 = all)")
+    parser.add_argument(
+        "--output", type=Path, default=Path("data/visualizations_hnla_ssu"), help="Output directory"
+    )
+    parser.add_argument(
+        "--num-samples", type=int, default=20, help="How many pages to render (0 = all)"
+    )
     parser.add_argument("--show-labels", action="store_true", help="Draw SSU ids as labels")
     parser.add_argument(
         "--max-dim",

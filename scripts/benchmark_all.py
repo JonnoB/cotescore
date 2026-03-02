@@ -55,7 +55,7 @@ def main():
         choices=["yolo", "heron", "ppdoc"],
         help="Models to benchmark (default: yolo heron ppdoc)",
     )
-    parser.add_argument("--device", type=str, default=None, help="Device to use")
+    parser.add_argument("--device", type=str, default="cuda", help="Device to use (default: cuda)")
     parser.add_argument(
         "--csv-filename",
         type=str,
@@ -85,7 +85,8 @@ def main():
         sys.exit(1)
 
     runner = BenchmarkRunner(
-        dataset_path, output_path,
+        dataset_path,
+        output_path,
         csv_filename=args.csv_filename,
         images_subdir=args.images_subdir,
         image_ext=args.image_ext,
@@ -170,8 +171,12 @@ def main():
 
         if metric == "cot_score":
             yolo_str = f"{yolo_score:+.4f}" if isinstance(yolo_score, float) else str(yolo_score)
-            heron_str = f"{heron_score:+.4f}" if isinstance(heron_score, float) else str(heron_score)
-            ppdoc_str = f"{ppdoc_score:+.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
+            heron_str = (
+                f"{heron_score:+.4f}" if isinstance(heron_score, float) else str(heron_score)
+            )
+            ppdoc_str = (
+                f"{ppdoc_score:+.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
+            )
         else:
             yolo_str = f"{yolo_score:.4f}" if isinstance(yolo_score, float) else str(yolo_score)
             heron_str = f"{heron_score:.4f}" if isinstance(heron_score, float) else str(heron_score)

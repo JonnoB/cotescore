@@ -17,17 +17,15 @@ def _make_xml(page_content: str) -> str:
         f'<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<PcGts xmlns="{NS}">\n'
         f'  <Page imageFilename="test.tif" imageWidth="1000" imageHeight="1000">\n'
-        f'{page_content}'
-        f'  </Page>\n'
-        f'</PcGts>\n'
+        f"{page_content}"
+        f"  </Page>\n"
+        f"</PcGts>\n"
     )
 
 
 def _write_tmp(content: str) -> str:
     """Write XML content to a temp file and return its path."""
-    f = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".xml", delete=False, encoding="utf-8"
-    )
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False, encoding="utf-8")
     f.write(content)
     f.close()
     return f.name
@@ -37,7 +35,8 @@ def _write_tmp(content: str) -> str:
 # Fixtures — minimal PAGE XML strings
 # ---------------------------------------------------------------------------
 
-SINGLE_GROUP_WITH_HEADING = _make_xml("""\
+SINGLE_GROUP_WITH_HEADING = _make_xml(
+    """\
 <ReadingOrder>
   <UnorderedGroup id="ug1">
     <OrderedGroup id="g1">
@@ -50,9 +49,11 @@ SINGLE_GROUP_WITH_HEADING = _make_xml("""\
 <TextRegion id="r1" type="paragraph"/>
 <TextRegion id="r2" type="heading"/>
 <TextRegion id="r3" type="paragraph"/>
-""")
+"""
+)
 
-MULTI_GROUP = _make_xml("""\
+MULTI_GROUP = _make_xml(
+    """\
 <ReadingOrder>
   <UnorderedGroup id="ug1">
     <OrderedGroup id="g1">
@@ -69,9 +70,11 @@ MULTI_GROUP = _make_xml("""\
 <TextRegion id="r2" type="paragraph"/>
 <TextRegion id="r3" type="heading"/>
 <TextRegion id="r4" type="paragraph"/>
-""")
+"""
+)
 
-UNGROUPED_REGIONS = _make_xml("""\
+UNGROUPED_REGIONS = _make_xml(
+    """\
 <ReadingOrder>
   <UnorderedGroup id="ug1">
     <OrderedGroup id="g1">
@@ -82,9 +85,11 @@ UNGROUPED_REGIONS = _make_xml("""\
 <TextRegion id="r1" type="paragraph"/>
 <TextRegion id="r2" type="page-number"/>
 <TextRegion id="r3" type="header"/>
-""")
+"""
+)
 
-CONSECUTIVE_HEADINGS = _make_xml("""\
+CONSECUTIVE_HEADINGS = _make_xml(
+    """\
 <ReadingOrder>
   <UnorderedGroup id="ug1">
     <OrderedGroup id="g1">
@@ -97,9 +102,11 @@ CONSECUTIVE_HEADINGS = _make_xml("""\
 <TextRegion id="r1" type="heading"/>
 <TextRegion id="r2" type="heading"/>
 <TextRegion id="r3" type="paragraph"/>
-""")
+"""
+)
 
-NO_TYPE_ATTRIBUTE = _make_xml("""\
+NO_TYPE_ATTRIBUTE = _make_xml(
+    """\
 <ReadingOrder>
   <UnorderedGroup id="ug1">
     <OrderedGroup id="g1">
@@ -110,9 +117,11 @@ NO_TYPE_ATTRIBUTE = _make_xml("""\
 </ReadingOrder>
 <TextRegion id="r1" type="paragraph"/>
 <TextRegion id="r2"/>
-""")
+"""
+)
 
-EMPTY_ORDERED_GROUP = _make_xml("""\
+EMPTY_ORDERED_GROUP = _make_xml(
+    """\
 <ReadingOrder>
   <UnorderedGroup id="ug1">
     <OrderedGroup id="g1"/>
@@ -122,9 +131,11 @@ EMPTY_ORDERED_GROUP = _make_xml("""\
   </UnorderedGroup>
 </ReadingOrder>
 <TextRegion id="r1" type="paragraph"/>
-""")
+"""
+)
 
-FLAT_ORDERED_GROUP = _make_xml("""\
+FLAT_ORDERED_GROUP = _make_xml(
+    """\
 <ReadingOrder>
   <OrderedGroup id="g1">
     <RegionRefIndexed regionRef="r1" index="0"/>
@@ -133,7 +144,8 @@ FLAT_ORDERED_GROUP = _make_xml("""\
 </ReadingOrder>
 <TextRegion id="r1" type="heading"/>
 <TextRegion id="r2" type="paragraph"/>
-""")
+"""
+)
 
 
 # ---------------------------------------------------------------------------

@@ -296,7 +296,7 @@ class DocLayNetDataset:
             8: "Section-header",
             9: "Table",
             10: "Text",
-            11: "Title"
+            11: "Title",
         }
 
     def load(self):
@@ -326,8 +326,8 @@ class DocLayNetDataset:
             original_filename = metadata.get("original_filename", f"doclaynet_{self.split}_{i}.png")
 
             # The name might be a .pdf in the metadata, ensure we save it as a .png
-            if not original_filename.lower().endswith('.png'):
-                original_filename += '.png'
+            if not original_filename.lower().endswith(".png"):
+                original_filename += ".png"
 
             image_path = self.images_dir / original_filename
 
@@ -355,15 +355,17 @@ class DocLayNetDataset:
                 class_name = self.category_names.get(cat_id, str(cat_id))
                 area = areas[j] if j < len(areas) else (w * h)
 
-                annotations.append({
-                    "x": float(x),
-                    "y": float(y),
-                    "width": float(w),
-                    "height": float(h),
-                    "class": class_name,
-                    "confidence": 1.0,
-                    "area": float(area)
-                })
+                annotations.append(
+                    {
+                        "x": float(x),
+                        "y": float(y),
+                        "width": float(w),
+                        "height": float(h),
+                        "class": class_name,
+                        "confidence": 1.0,
+                        "area": float(area),
+                    }
+                )
 
             self.annotations_by_image[str(image_path)] = annotations
 
