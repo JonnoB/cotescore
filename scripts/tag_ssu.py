@@ -42,9 +42,7 @@ def main() -> None:
         sys.exit(1)
 
     output_dir: Path = (
-        args.output.resolve()
-        if args.output
-        else input_dir.parent / f"{input_dir.name}_with_ssu"
+        args.output.resolve() if args.output else input_dir.parent / f"{input_dir.name}_with_ssu"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -74,8 +72,13 @@ def main() -> None:
             errors += 1
 
     logger.info("")
-    logger.info("Done: %d/%d files processed, %d SSUs assigned, %d errors.",
-                ok, len(xml_files), total_ssus, errors)
+    logger.info(
+        "Done: %d/%d files processed, %d SSUs assigned, %d errors.",
+        ok,
+        len(xml_files),
+        total_ssus,
+        errors,
+    )
     if errors:
         sys.exit(1)
 

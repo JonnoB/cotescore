@@ -234,6 +234,7 @@ def cote_score(
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
     return (float(cot), float(C), float(O), float(T), float(E))
 
+
 # =============================================================================
 # The Character Distribution Divergence
 #
@@ -241,6 +242,7 @@ def cote_score(
 # which has been implemented using basic shannon entropy.
 #
 # =============================================================================
+
 
 def shannon_entropy(p):
     """
@@ -252,6 +254,7 @@ def shannon_entropy(p):
     """
     p_nonzero = p[p > 0]
     return -np.sum(p_nonzero * np.log2(p_nonzero))
+
 
 def jensen_shannon_divergence(p, q):
     """
@@ -276,17 +279,17 @@ def jensen_shannon_divergence(p, q):
     # The JSD definition assumes valid probability distributions.
     # We ensure p and q are of the same length.
     if p.sum() == 0 and q.sum() == 0:
-        return 0.0 # Both empty, no divergence
+        return 0.0  # Both empty, no divergence
     elif p.sum() == 0:
-        p = np.zeros_like(q) # Make p a zero-distribution of same size as q
+        p = np.zeros_like(q)  # Make p a zero-distribution of same size as q
     elif q.sum() == 0:
-        q = np.zeros_like(p) # Make q a zero-distribution of same size as p
-
+        q = np.zeros_like(p)  # Make q a zero-distribution of same size as p
 
     m = 0.5 * (p + q)
     jsd = shannon_entropy(m) - 0.5 * (shannon_entropy(p) + shannon_entropy(q))
 
     return jsd
+
 
 # --- Optimized Character Distribution Divergence (CDD) Function ---
 def cdd(gt_text_list, ocr_text_list):
@@ -331,8 +334,9 @@ def cdd(gt_text_list, ocr_text_list):
 
     # 5. Create the character counts dictionary using a dictionary comprehension
     # This is also more efficient for constructing the dictionary.
-    char_counts_dict = {char: [gt_counts.get(char, 0), ocr_counts.get(char, 0)]
-                        for char in all_unique_chars}
+    char_counts_dict = {
+        char: [gt_counts.get(char, 0), ocr_counts.get(char, 0)] for char in all_unique_chars
+    }
 
     # 6. Convert counts to probability distributions
     gt_total = np.sum(gt_aligned_counts)
@@ -340,8 +344,16 @@ def cdd(gt_text_list, ocr_text_list):
 
     # If a total is zero, it means no characters of that type.
     # This means the distribution is effectively all zeros, which will result in 0 entropy.
-    p_gt = gt_aligned_counts / gt_total if gt_total > 0 else np.zeros_like(gt_aligned_counts, dtype=float)
-    p_ocr = ocr_aligned_counts / ocr_total if ocr_total > 0 else np.zeros_like(ocr_aligned_counts, dtype=float)
+    p_gt = (
+        gt_aligned_counts / gt_total
+        if gt_total > 0
+        else np.zeros_like(gt_aligned_counts, dtype=float)
+    )
+    p_ocr = (
+        ocr_aligned_counts / ocr_total
+        if ocr_total > 0
+        else np.zeros_like(ocr_aligned_counts, dtype=float)
+    )
 
     # 7. Calculate JSD
     cdd_value = np.sqrt(jensen_shannon_divergence(p_gt, p_ocr))

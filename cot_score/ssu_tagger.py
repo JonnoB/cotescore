@@ -41,7 +41,9 @@ class SSUTagger:
             }
         return regions
 
-    def _extract_region_bbox(self, region: ET.Element, ns: dict) -> Optional[tuple[float, float, float, float]]:
+    def _extract_region_bbox(
+        self, region: ET.Element, ns: dict
+    ) -> Optional[tuple[float, float, float, float]]:
         """Extract (x1, y1, x2, y2) bbox from a TextRegion Coords polygon."""
         coords = region.find("page:Coords", ns)
         if coords is None:
@@ -148,7 +150,10 @@ class SSUTagger:
                 ccenter = statistics.median(c["center_values"])
                 cwidth = statistics.median(c["width_values"])
 
-                if abs(rcenter - ccenter) <= center_tolerance and abs(rwidth - cwidth) <= width_tolerance:
+                if (
+                    abs(rcenter - ccenter) <= center_tolerance
+                    and abs(rwidth - cwidth) <= width_tolerance
+                ):
                     score = abs(rcenter - ccenter) + abs(rwidth - cwidth)
                     if score < best_score:
                         best_score = score
@@ -245,9 +250,7 @@ class SSUTagger:
             return f"col_{best_bin_id}"
         return f"span_{rid}" if rid else "span"
 
-    def _find_leaf_ordered_groups(
-        self, element: ET.Element, ns: dict, depth: int = 0
-    ) -> list:
+    def _find_leaf_ordered_groups(self, element: ET.Element, ns: dict, depth: int = 0) -> list:
         """
         Recursively find all OrderedGroup elements that contain RegionRefIndexed
         children (leaf groups). Warns if nesting deeper than 1 level is found.
@@ -266,19 +269,13 @@ class SSUTagger:
                         depth,
                         group.get("id", ""),
                     )
-                region_refs = [
-                    (int(r.get("index", 0)), r.get("regionRef", "")) for r in refs
-                ]
+                region_refs = [(int(r.get("index", 0)), r.get("regionRef", "")) for r in refs]
                 results.append((group.get("id", ""), region_refs))
             elif child_groups:
-                results.extend(
-                    self._find_leaf_ordered_groups(group, ns, depth + 1)
-                )
+                results.extend(self._find_leaf_ordered_groups(group, ns, depth + 1))
         return results
 
-    def _extract_reading_order(
-        self, page: ET.Element, ns: dict
-    ) -> list:
+    def _extract_reading_order(self, page: ET.Element, ns: dict) -> list:
         """
         Return ordered list of (group_id, [region_id, ...]) for all leaf
         OrderedGroups in the ReadingOrder. Handles both flat structures
@@ -297,14 +294,10 @@ class SSUTagger:
             refs = group.findall("page:RegionRefIndexed", ns)
             child_groups = group.findall("page:OrderedGroup", ns)
             if refs:
-                region_refs = [
-                    (int(r.get("index", 0)), r.get("regionRef", "")) for r in refs
-                ]
+                region_refs = [(int(r.get("index", 0)), r.get("regionRef", "")) for r in refs]
                 leaf_groups.append((group.get("id", ""), region_refs))
             elif child_groups:
-                leaf_groups.extend(
-                    self._find_leaf_ordered_groups(group, ns, depth=1)
-                )
+                leaf_groups.extend(self._find_leaf_ordered_groups(group, ns, depth=1))
 
         # OrderedGroups nested under UnorderedGroup(s)
         for ug in ro.findall("page:UnorderedGroup", ns):
@@ -408,9 +401,7 @@ class SSUTagger:
 
         return region_to_ssu, ssu_to_regions, ssu_metadata
 
-    def _update_xml(
-        self, page: ET.Element, ns: dict, region_to_ssu: dict
-    ) -> None:
+    def _update_xml(self, page: ET.Element, ns: dict, region_to_ssu: dict) -> None:
         """Append SSU custom attribute to each TextRegion element."""
         for region in page.findall("page:TextRegion", ns):
             rid = region.get("id", "")

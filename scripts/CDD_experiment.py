@@ -13,15 +13,16 @@ def _():
     import marimo as mo
     from string import ascii_uppercase
     from cot_score.metrics import jensen_shannon_divergence
+
     return ascii_uppercase, jensen_shannon_divergence, np, pd, plt, sns
 
 
 @app.cell
 def _():
     # === Configuration ===
-    BASE_COUNT = 2000       # count per character A-T
-    FRAC_MAX = 0.2        # maximum corruption fraction
-    FRAC_STEP = 0.001       # step size for corruption fractions
+    BASE_COUNT = 2000  # count per character A-T
+    FRAC_MAX = 0.2  # maximum corruption fraction
+    FRAC_STEP = 0.001  # step size for corruption fractions
     return BASE_COUNT, FRAC_MAX, FRAC_STEP
 
 
@@ -55,6 +56,7 @@ def _(BASE_COUNT, ascii_uppercase, jensen_shannon_divergence, np):
         _p = counts_to_prob(counts_a)
         _q = counts_to_prob(counts_b)
         return 0.5 * np.sum(np.abs(_p - _q))
+
     return Q_gt, compute_cdd, compute_tv
 
 
@@ -126,6 +128,7 @@ def _(ascii_uppercase):
                 _to_remove -= _take
 
         return _r
+
     return apply_ocr_corruption, apply_parse_corruption
 
 
@@ -142,7 +145,7 @@ def _(
 ):
     # Run simulation across all modes
     _n_steps = round(FRAC_MAX / FRAC_STEP)
-    _round_digits = max(0, len(str(FRAC_STEP).rstrip('0').split('.')[-1]))
+    _round_digits = max(0, len(str(FRAC_STEP).rstrip("0").split(".")[-1]))
     _fracs = [round(i * FRAC_STEP, _round_digits) for i in range(_n_steps + 1)]
     _modes = ["hiding", "proportional", "sequential"]
     _results = {m: [] for m in _modes}
@@ -158,15 +161,17 @@ def _(
                 _d_total = compute_cdd(_P_ocr, Q_gt)
                 _tv_ocr = compute_tv(_P_ocr, _R)
                 _tv_total = compute_tv(_P_ocr, Q_gt)
-                _results[_mode].append({
-                    "parse_frac": _pf,
-                    "ocr_frac": _of,
-                    "d_total": _d_total,
-                    "d_parse": _d_parse,
-                    "d_ocr": _d_ocr,
-                    "tv_ocr": _tv_ocr,
-                    "tv_total": _tv_total,
-                })
+                _results[_mode].append(
+                    {
+                        "parse_frac": _pf,
+                        "ocr_frac": _of,
+                        "d_total": _d_total,
+                        "d_parse": _d_parse,
+                        "d_ocr": _d_ocr,
+                        "tv_ocr": _tv_ocr,
+                        "tv_total": _tv_total,
+                    }
+                )
 
     df_hiding = pd.DataFrame(_results["hiding"])
     df_proportional = pd.DataFrame(_results["proportional"])
@@ -250,6 +255,7 @@ def _(np, plt, sns):
 
         plt.tight_layout()
         return _fig
+
     return (plot_mode_heatmaps,)
 
 
@@ -292,7 +298,9 @@ def _(df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
         _y = _pivot.index.values
         _X, _Y = np.meshgrid(_x, _y)
         _ax.contour(
-            _X, _Y, _pivot.values,
+            _X,
+            _Y,
+            _pivot.values,
             levels=[0.0],
             colors=_color,
             linewidths=2,
@@ -350,8 +358,11 @@ def _(df_hiding_d, df_proportional_d, df_real, df_sequential_d, np, plt):
                 _balance_dtotal.append(_dt_interp)
 
         _ax.plot(
-            _balance_cer, _balance_dtotal,
-            color=_color, linewidth=1.5, label=_label,
+            _balance_cer,
+            _balance_dtotal,
+            color=_color,
+            linewidth=1.5,
+            label=_label,
         )
 
     # Realistic balance points (group by target_cer, interpolate across parse_frac)
@@ -374,8 +385,11 @@ def _(df_hiding_d, df_proportional_d, df_real, df_sequential_d, np, plt):
             _balance_dtotal_real.append(_dt_interp)
 
     _ax.plot(
-        _balance_cer_real, _balance_dtotal_real,
-        color="tab:purple", linewidth=2, label="Realistic (scrambledtext)",
+        _balance_cer_real,
+        _balance_dtotal_real,
+        color="tab:purple",
+        linewidth=2,
+        label="Realistic (scrambledtext)",
     )
 
     # Bound curves
@@ -385,23 +399,32 @@ def _(df_hiding_d, df_proportional_d, df_real, df_sequential_d, np, plt):
     )
     _cer_range = np.linspace(1e-6, _cer_max * 1.1, 200)
     _ax.plot(
-        _cer_range, 2 * np.sqrt(_cer_range),
-        "k--", linewidth=2,
+        _cer_range,
+        2 * np.sqrt(_cer_range),
+        "k--",
+        linewidth=2,
         label=r"$2\sqrt{CER}$",
     )
     _ax.plot(
-        _cer_range, np.sqrt(_cer_range),
-        "k-.", linewidth=2,
+        _cer_range,
+        np.sqrt(_cer_range),
+        "k-.",
+        linewidth=2,
         label=r"$\sqrt{CER}$",
     )
     _ax.plot(
-        _cer_range, _cer_range,
-        "k-", linewidth=1, alpha=0.6,
+        _cer_range,
+        _cer_range,
+        "k-",
+        linewidth=1,
+        alpha=0.6,
         label=r"$CER$",
     )
     _ax.plot(
-        _cer_range, 2 * _pinsker_const * _cer_range,
-        "k:", linewidth=1.5,
+        _cer_range,
+        2 * _pinsker_const * _cer_range,
+        "k:",
+        linewidth=1.5,
         label=r"$\frac{CER}{\sqrt{2\ln 2}}$ (Pinsker lower)",
     )
 
@@ -421,7 +444,8 @@ def _(FRAC_MAX, df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
     _fig, _axes = plt.subplots(2, 3, figsize=(16, 9), sharey="row")
     _fig.suptitle(
         "Precision & Recall for parse-dominance detection by CER threshold",
-        fontsize=13, fontweight="bold",
+        fontsize=13,
+        fontweight="bold",
     )
 
     _d_cap = 2 * np.sqrt(FRAC_MAX)  # d_total ceiling
@@ -466,8 +490,12 @@ def _(FRAC_MAX, df_hiding_d, df_proportional_d, df_sequential_d, np, plt):
                 _precisions.append(_prec)
                 _recalls.append(_rec)
 
-            _ax_prec.plot(_cers, _precisions, color=_color, linestyle=_ls, linewidth=2, label=_thresh_label)
-            _ax_rec.plot(_cers, _recalls, color=_color, linestyle=_ls, linewidth=2, label=_thresh_label)
+            _ax_prec.plot(
+                _cers, _precisions, color=_color, linestyle=_ls, linewidth=2, label=_thresh_label
+            )
+            _ax_rec.plot(
+                _cers, _recalls, color=_color, linestyle=_ls, linewidth=2, label=_thresh_label
+            )
 
         _ax_prec.set_title(_mode_name)
         _ax_prec.set_ylim(-0.05, 1.05)
@@ -498,7 +526,8 @@ def _(
     _fig, _axes = plt.subplots(2, 2, figsize=(12, 9), sharey=True)
     _fig.suptitle(
         "F1 score for parse-dominance detection by CER threshold based on corruption type",
-        fontsize=13, fontweight="bold",
+        fontsize=13,
+        fontweight="bold",
     )
 
     _d_cap = 2 * np.sqrt(FRAC_MAX)  # d_total ceiling
@@ -555,9 +584,11 @@ def _(
             _bin_mid = (_bin_start + _bin_end) / 2
             if _bin_mid == 0:
                 continue
-            _group = df_real[(df_real["cer"] >= _bin_start)
-                            & (df_real["cer"] < _bin_end)
-                            & (df_real["d_total"] < _d_cap)]
+            _group = df_real[
+                (df_real["cer"] >= _bin_start)
+                & (df_real["cer"] < _bin_end)
+                & (df_real["d_total"] < _d_cap)
+            ]
             if len(_group) == 0:
                 continue
             _T = _thresh_fn(_bin_mid)
@@ -572,8 +603,9 @@ def _(
             _cers_plot.append(_bin_mid)
             _f1s_plot.append(_f1)
 
-        _ax_real.plot(_cers_plot, _f1s_plot, color=_color, linestyle=_ls,
-                      linewidth=2, label=_thresh_label)
+        _ax_real.plot(
+            _cers_plot, _f1s_plot, color=_color, linestyle=_ls, linewidth=2, label=_thresh_label
+        )
 
     _ax_real.set_title("Realistic (scrambledtext + limerick)")
     _ax_real.set_ylim(-0.05, 1.05)
@@ -611,7 +643,9 @@ def _():
                 _all_chars.append(_c)
 
     # Sort by reading order: top-to-bottom then left-to-right (y then x of bbox centre)
-    _all_chars.sort(key=lambda c: (c["bbox"][1] + c["bbox"][3] / 2, c["bbox"][0] + c["bbox"][2] / 2))
+    _all_chars.sort(
+        key=lambda c: (c["bbox"][1] + c["bbox"][3] / 2, c["bbox"][0] + c["bbox"][2] / 2)
+    )
     real_chars_sorted = _all_chars
 
     # Build ground truth count dict
@@ -661,7 +695,7 @@ def _(OVERFLOW_CHAR, jensen_shannon_divergence, np):
         """
         _n = len(chars_sorted)
         _n_remove = round(fraction * _n)
-        _keep = chars_sorted[:_n - _n_remove] if _n_remove > 0 else chars_sorted
+        _keep = chars_sorted[: _n - _n_remove] if _n_remove > 0 else chars_sorted
         _kept_text = "".join(c["char"] for c in _keep)
         _R = dict(_Counter(c["char"] for c in _keep))
         if _n_remove > 0:
@@ -682,6 +716,7 @@ def _(OVERFLOW_CHAR, jensen_shannon_divergence, np):
         _corrupted, _, _, _ = _engine.corrupt_text(text)
         _actual_cer = _jiwer_cer(text, _corrupted)
         return _corrupted, _actual_cer
+
     return (
         apply_real_parse_corruption,
         corrupt_text_realistic,
@@ -728,14 +763,16 @@ def _(
                 _d_totals.append(real_compute_cdd(_obs_counts, Q_real))
                 _actual_cers.append(_actual_cer)
 
-            _results.append({
-                "parse_frac": _pf,
-                "target_cer": _target_cer,
-                "cer": np.mean(_actual_cers),
-                "d_total": np.mean(_d_totals),
-                "d_parse": _d_parse,
-                "d_ocr": np.mean(_d_ocrs),
-            })
+            _results.append(
+                {
+                    "parse_frac": _pf,
+                    "target_cer": _target_cer,
+                    "cer": np.mean(_actual_cers),
+                    "d_total": np.mean(_d_totals),
+                    "d_parse": _d_parse,
+                    "d_ocr": np.mean(_d_ocrs),
+                }
+            )
 
     df_real = pd.DataFrame(_results)
     df_real["parse_minus_ocr"] = df_real["d_parse"] - df_real["d_ocr"]

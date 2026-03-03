@@ -2,8 +2,16 @@
 
 import pytest
 import numpy as np
-from cot_score.metrics import coverage, overlap, iou, mean_iou, trespass, excess, cote_score as cot_score
 from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cot_score.metrics import (
+    coverage,
+    overlap,
+    iou,
+    mean_iou,
+    trespass,
+    excess,
+    cote_score as cot_score,
+)
 from tests.reference_metrics import (
     coverage as ref_coverage,
     overlap as ref_overlap,
