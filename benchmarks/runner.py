@@ -9,7 +9,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from cot_score.dataset import NCSEDataset, HNLA2013Dataset
+from cot_score.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset
 from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cot_score.metrics import (
     coverage,
@@ -41,20 +41,23 @@ class BenchmarkRunner:
         image_ext: str = "png",
         dataset_name: str = "ncse",
         groundtruth_path: Path = None,
+        split: str = "test",
     ):
         """
         Initialize the benchmark runner.
 
         Args:
-            dataset_path: Path to dataset (or images directory for HNLA2013)
+            dataset_path: Path to dataset (or images directory for HNLA2013).
+                For DocLayNet, may be None to trigger HuggingFace download.
             output_path: Path where results will be saved
             csv_filename: Name of the annotations CSV file (for NCSE)
             images_subdir: Name of the images subdirectory (for NCSE)
             image_ext: Image file extension to glob for
             dataset_name: Type of dataset to load ('ncse', 'doclaynet', or 'hnla2013')
             groundtruth_path: Path to ground truth directory (for HNLA2013)
+            split: Dataset split for DocLayNet (default: 'test')
         """
-        self.dataset_path = Path(dataset_path)
+        self.dataset_path = Path(dataset_path) if dataset_path is not None else None
         self.output_path = Path(output_path)
         self.output_path.mkdir(parents=True, exist_ok=True)
         self.csv_filename = csv_filename
@@ -62,6 +65,7 @@ class BenchmarkRunner:
         self.image_ext = image_ext
         self.dataset_name = dataset_name.lower()
         self.groundtruth_path = Path(groundtruth_path) if groundtruth_path else None
+        self.split = split
 
     def measure_latency(
         self, model, sample_image_path: Path, warmup: int = 10, repeats: int = 50
@@ -135,7 +139,7 @@ class BenchmarkRunner:
                 image_ext=self.image_ext,
             )
         elif self.dataset_name == "doclaynet":
-            dataset = DocLayNetDataset(self.dataset_path, split="test")
+            dataset = DocLayNetDataset(self.dataset_path, split=self.split)
         elif self.dataset_name == "hnla2013":
             if self.groundtruth_path is None:
                 raise ValueError("groundtruth_path must be provided for hnla2013 dataset")

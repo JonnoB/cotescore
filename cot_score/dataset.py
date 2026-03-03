@@ -264,39 +264,36 @@ class NCSEDataset:
 
 
 class DocLayNetDataset:
-    """Loader for the DocLayNet dataset using HuggingFace datasets."""
+    """Loader for the DocLayNet dataset from local HuggingFace parquet files."""
 
     def __init__(
         self,
-        dataset_path: Path = Path("/teamspace/lightning_storage/doclayout"),
-        split: str = "val",
+        dataset_path: Optional[Path] = None,
+        split: str = "test",
     ):
         """
         Initialize the DocLayNet dataset loader.
 
         Args:
-            dataset_path: Path to store local downloaded representations of images for benchmarking.
-                Defaults to /teamspace/lightning_storage/doclayout.
-            split: Dataset split to load ('train', 'val', or 'test'). Note: HF dataset uses 'validation' for 'val'.
+            dataset_path: Path to a directory containing DocLayNet HuggingFace parquet
+                files (e.g. ``test-00001-of-00001.parquet``).  Images are extracted from
+                the parquet rows and cached under ``dataset_path/PNG/``.
+                If None or the directory contains no parquet files, the dataset is
+                downloaded from HuggingFace (``docling-project/DocLayNet-v1.2``) and
+                images are cached under ``/teamspace/lightning_storage/doclayout/PNG/``.
+            split: Dataset split to load ('train', 'val', or 'test').  Used both as a
+                logging label and (when downloading from HF) to select the correct split.
         """
-        self.dataset_path = Path(dataset_path)
-
-        # DocLayNet HF uses 'validation' instead of 'val'
-        if split == "val":
-            self.split = "validation"
-        else:
-            self.split = split
-
-        if self.split not in ("train", "validation", "test"):
-            raise ValueError("Split must be one of 'train', 'val', or 'test'.")
-
-        self.images_dir = self.dataset_path / "PNG"
+        self.dataset_path = Path(dataset_path) if dataset_path is not None else None
+        self.split = split
+        _cache_root = self.dataset_path if self.dataset_path is not None else Path("/teamspace/lightning_storage/doclayout")
+        self.images_dir = _cache_root / "PNG"
 
         self.images = []
         self.annotations_by_image = {}
         self._loaded = False
 
-        # DocLayNet-v1.1 HF category ID mapping
+        # DocLayNet-v1.1/v1.2 HF category ID mapping
         self.category_names = {
             1: "Caption",
             2: "Footnote",
@@ -312,38 +309,49 @@ class DocLayNetDataset:
         }
 
     def load(self):
-        """Load the dataset via HuggingFace datasets."""
+        """Load the dataset, from local parquet files if available, else from HuggingFace."""
         if self._loaded:
             return
 
         import datasets
 
-        # We ensure the image directory exists
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Loading docling-project/DocLayNet-v1.2 {self.split} split...")
-        # Only download the specific split's parquet files via data_files.
-        # We use split="train" as the virtual key and verification_mode="no_checks"
-        # to prevent the library from downloading all splits.
-        ds = datasets.load_dataset(
-            "docling-project/DocLayNet-v1.2",
-            data_files=f"data/{self.split}-*.parquet",
-            split="train",
-            verification_mode="no_checks",
+        # Determine whether local parquet files are available
+        local_parquet = (
+            sorted(self.dataset_path.glob("*.parquet")) if self.dataset_path is not None else []
         )
+
+        if local_parquet:
+            logger.info(f"Loading DocLayNet from {self.dataset_path} ({len(local_parquet)} parquet files)...")
+            ds = datasets.load_dataset(
+                "parquet",
+                data_files=str(self.dataset_path / "*.parquet"),
+                split="train",
+            )
+        else:
+            # Fall back to HuggingFace download
+            hf_split = "validation" if self.split == "val" else self.split
+            logger.info(f"No local parquet files found — downloading DocLayNet-v1.2 '{hf_split}' split from HuggingFace...")
+            ds = datasets.load_dataset(
+                "docling-project/DocLayNet-v1.2",
+                data_files=f"data/{hf_split}-*.parquet",
+                split="train",
+                verification_mode="no_checks",
+            )
 
         for i, row in enumerate(ds):
             # Row has: image, bboxes, category_id, area, metadata
             metadata = row.get("metadata", {})
             original_filename = metadata.get("original_filename", f"doclaynet_{self.split}_{i}.png")
 
-            # The name might be a .pdf in the metadata, ensure we save it as a .png
+            # Ensure PNG extension
             if not original_filename.lower().endswith(".png"):
                 original_filename += ".png"
 
             image_path = self.images_dir / original_filename
 
-            # Save image if it doesn't exist
+            # Cache image to disk if not already present
             if not image_path.exists():
                 img = row["image"]
                 img.save(image_path)
@@ -374,6 +382,8 @@ class DocLayNetDataset:
                         "width": float(w),
                         "height": float(h),
                         "class": class_name,
+                        "ssu_id": j + 1,
+                        "ssu_class": "object",
                         "confidence": 1.0,
                         "area": float(area),
                     }

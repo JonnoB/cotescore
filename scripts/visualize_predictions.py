@@ -224,6 +224,12 @@ def main():
     parser.add_argument("--conf", type=float, default=0.2, help="Confidence threshold")
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu, cuda, mps)")
     parser.add_argument("--overlay", action="store_true", help="Create overlay")
+    parser.add_argument(
+        "--images-subdir",
+        type=str,
+        default=None,
+        help="Name of images subdirectory (default: ncse_test_png_120)",
+    )
 
     args = parser.parse_args()
     output_path = Path(args.output)
@@ -237,7 +243,7 @@ def main():
             args.model = "ds4sd/docling-layout-heron"
 
     print(f"Loading dataset: {args.dataset}")
-    dataset = NCSEDataset(Path(args.dataset), split="test")
+    dataset = NCSEDataset(Path(args.dataset), split="test", images_subdir=args.images_subdir)
     dataset.load()
 
     # Initialize the appropriate model based on type
