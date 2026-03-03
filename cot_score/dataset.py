@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional
 import re
 import json
 import logging
+import xml.etree.ElementTree as ET
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -426,4 +427,143 @@ class DocLayNetDataset:
         if idx < 0 or idx >= len(self.images):
             raise IndexError(f"Index {idx} out of range for dataset of size " f"{len(self.images)}")
 
+        return self.annotations_by_image[self.images[idx]]
+
+
+class HNLA2013Dataset:
+    """Loader for the HNLA2013 dataset with SSU-tagged PAGE XML ground truth."""
+
+    _NS = {"page": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2010-03-19"}
+    _SSU_ID_RE = re.compile(r"id:([^;]+);")
+
+    def __init__(
+        self,
+        images_path: Path,
+        groundtruth_path: Path,
+        image_ext: str = "tif",
+    ):
+        """
+        Initialize the HNLA2013 dataset loader.
+
+        Args:
+            images_path: Flat directory containing TIFF image files
+            groundtruth_path: Directory containing PAGE XML files with SSU annotations
+                              (e.g. groundtruth_with_ssu/)
+            image_ext: Image file extension to glob for (default: 'tif')
+        """
+        self.images_path = Path(images_path)
+        self.groundtruth_path = Path(groundtruth_path)
+        self.image_ext = image_ext
+        self.images = []
+        self.annotations_by_image = {}
+        self._loaded = False
+
+    def load(self):
+        """Load the dataset from disk."""
+        if self._loaded:
+            return
+
+        if not self.images_path.exists():
+            raise FileNotFoundError(f"Images directory not found: {self.images_path}")
+        if not self.groundtruth_path.exists():
+            raise FileNotFoundError(f"Ground truth directory not found: {self.groundtruth_path}")
+
+        # Build stem -> xml_path map, stripping the "pc-" prefix used in HNLA2013 XML filenames
+        xml_by_stem = {}
+        for xml_path in self.groundtruth_path.glob("*.xml"):
+            stem = xml_path.stem
+            if stem.startswith("pc-"):
+                stem = stem[3:]
+            xml_by_stem[stem] = xml_path
+
+        for img_path in sorted(self.images_path.glob(f"*.{self.image_ext}")):
+            xml_path = xml_by_stem.get(img_path.stem)
+            if xml_path is None:
+                logger.warning(f"No ground truth XML found for {img_path.name}, skipping")
+                continue
+
+            annotations = self._parse_xml(xml_path, img_path.stem)
+            self.images.append(str(img_path))
+            self.annotations_by_image[str(img_path)] = annotations
+
+        self._loaded = True
+
+    def _parse_xml(self, xml_path: Path, page_id: str) -> List[Dict[str, Any]]:
+        """Parse a PAGE XML file and return annotations in the standard format."""
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        ns = self._NS
+
+        regions = root.findall(".//page:TextRegion", ns)
+
+        # Assign stable per-page integer SSU IDs (1-indexed; 0 = background)
+        ssu_strings: List[str] = []
+        for region in regions:
+            m = self._SSU_ID_RE.search(region.get("custom", ""))
+            if m:
+                ssu_str = m.group(1).strip()
+                if ssu_str not in ssu_strings:
+                    ssu_strings.append(ssu_str)
+        ssu_to_int = {s: i + 1 for i, s in enumerate(ssu_strings)}
+
+        annotations = []
+        for region in regions:
+            coords_elem = region.find("page:Coords", ns)
+            if coords_elem is None:
+                continue
+            points_str = coords_elem.get("points", "")
+            if not points_str:
+                continue
+
+            try:
+                points = [tuple(int(v) for v in pt.split(",")) for pt in points_str.split()]
+                xs = [p[0] for p in points]
+                ys = [p[1] for p in points]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse Coords in {xml_path.name}, skipping region")
+                continue
+
+            m = self._SSU_ID_RE.search(region.get("custom", ""))
+            ssu_str = m.group(1).strip() if m else None
+            ssu_id = ssu_to_int.get(ssu_str, 0) if ssu_str else 0
+
+            annotations.append(
+                {
+                    "x": float(x1),
+                    "y": float(y1),
+                    "width": float(x2 - x1),
+                    "height": float(y2 - y1),
+                    "class": region.get("type", "text"),
+                    "ssu_id": ssu_id,
+                    "ssu_class": "object",
+                    "confidence": 1.0,
+                    "page_id": page_id,
+                }
+            )
+
+        return annotations
+
+    def __len__(self) -> int:
+        if not self._loaded:
+            self.load()
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
+        image_path = self.images[idx]
+        return {
+            "image_path": image_path,
+            "annotations": self.annotations_by_image[image_path],
+            "filename": Path(image_path).name,
+        }
+
+    def get_annotations(self, idx: int) -> List[Dict[str, Any]]:
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
         return self.annotations_by_image[self.images[idx]]
