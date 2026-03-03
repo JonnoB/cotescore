@@ -12,6 +12,7 @@ import json
 import logging
 import xml.etree.ElementTree as ET
 import pandas as pd
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -440,7 +441,7 @@ class HNLA2013Dataset:
         self,
         images_path: Path,
         groundtruth_path: Path,
-        image_ext: str = "tif",
+        image_ext: str = "png",
     ):
         """
         Initialize the HNLA2013 dataset loader.
@@ -449,7 +450,7 @@ class HNLA2013Dataset:
             images_path: Flat directory containing TIFF image files
             groundtruth_path: Directory containing PAGE XML files with SSU annotations
                               (e.g. groundtruth_with_ssu/)
-            image_ext: Image file extension to glob for (default: 'tif')
+            image_ext: Image file extension to glob for (default: 'png')
         """
         self.images_path = Path(images_path)
         self.groundtruth_path = Path(groundtruth_path)
@@ -482,17 +483,36 @@ class HNLA2013Dataset:
                 logger.warning(f"No ground truth XML found for {img_path.name}, skipping")
                 continue
 
-            annotations = self._parse_xml(xml_path, img_path.stem)
+            annotations, orig_w, orig_h = self._parse_xml(xml_path, img_path.stem)
+
+            # If the image on disk has been downsampled (e.g. TIFF → smaller PNG),
+            # rescale GT coordinates from original XML space to the image file space
+            # so that GT and model predictions share the same coordinate system.
+            if orig_w > 0:
+                with Image.open(img_path) as im:
+                    img_w, img_h = im.size
+                if img_w != orig_w:
+                    scale = img_w / orig_w
+                    for ann in annotations:
+                        ann["x"] *= scale
+                        ann["y"] *= scale
+                        ann["width"] *= scale
+                        ann["height"] *= scale
+
             self.images.append(str(img_path))
             self.annotations_by_image[str(img_path)] = annotations
 
         self._loaded = True
 
-    def _parse_xml(self, xml_path: Path, page_id: str) -> List[Dict[str, Any]]:
-        """Parse a PAGE XML file and return annotations in the standard format."""
+    def _parse_xml(self, xml_path: Path, page_id: str) -> tuple:
+        """Parse a PAGE XML file and return (annotations, orig_width, orig_height)."""
         tree = ET.parse(xml_path)
         root = tree.getroot()
         ns = self._NS
+
+        page_elem = root.find("page:Page", ns)
+        orig_w = int(page_elem.get("imageWidth", 0)) if page_elem is not None else 0
+        orig_h = int(page_elem.get("imageHeight", 0)) if page_elem is not None else 0
 
         regions = root.findall(".//page:TextRegion", ns)
 
@@ -542,7 +562,7 @@ class HNLA2013Dataset:
                 }
             )
 
-        return annotations
+        return annotations, orig_w, orig_h
 
     def __len__(self) -> int:
         if not self._loaded:

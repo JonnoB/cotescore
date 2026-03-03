@@ -34,7 +34,7 @@ def main():
         "--dataset",
         type=str,
         required=True,
-        help="Path to flat directory containing HNLA2013 TIFF images",
+        help="Path to flat directory containing HNLA2013 PNG images",
     )
     parser.add_argument(
         "--groundtruth",
@@ -59,8 +59,8 @@ def main():
     parser.add_argument(
         "--image-ext",
         type=str,
-        default="tif",
-        help="Image file extension (default: tif)",
+        default="png",
+        help="Image file extension (default: png)",
     )
     parser.add_argument(
         "--map-class-aware",
