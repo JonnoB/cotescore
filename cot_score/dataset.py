@@ -532,11 +532,16 @@ class HNLA2013Dataset:
             if coords_elem is None:
                 continue
             points_str = coords_elem.get("points", "")
-            if not points_str:
-                continue
-
             try:
-                points = [tuple(int(v) for v in pt.split(",")) for pt in points_str.split()]
+                if points_str:
+                    points = [tuple(int(v) for v in pt.split(",")) for pt in points_str.split()]
+                else:
+                    points = [
+                        (int(pt.get("x")), int(pt.get("y")))
+                        for pt in coords_elem.findall("page:Point", ns)
+                    ]
+                if not points:
+                    continue
                 xs = [p[0] for p in points]
                 ys = [p[1] for p in points]
                 x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
