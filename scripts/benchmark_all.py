@@ -75,6 +75,12 @@ def main():
         help="Image file extension (default: png)",
     )
 
+    parser.add_argument(
+        "--map-class-aware",
+        action="store_true",
+        help="If set, compute class-aware mAP (by default mAP ignores class).",
+    )
+
     args = parser.parse_args()
 
     dataset_path = Path(args.dataset)
@@ -116,7 +122,7 @@ def main():
         logger.info(f"{'='*60}")
 
         try:
-            results = runner.run_evaluation(model)
+            results = runner.run_evaluation(model, map_ignore_class=(not args.map_class_aware))
             runner.print_summary(results)
 
             safe_name = model_name.lower().replace(" ", "_").replace("-", "_")

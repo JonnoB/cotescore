@@ -101,7 +101,13 @@ class BenchmarkRunner:
             "p95_latency_ms": float(np.percentile(latencies, 95)),
         }
 
-    def run_evaluation(self, model, metrics: List[str] = None) -> Dict[str, Any]:
+    def run_evaluation(
+        self,
+        model,
+        metrics: List[str] = None,
+        *,
+        map_ignore_class: bool = True,
+    ) -> Dict[str, Any]:
         """
         Run evaluation for a model using specified metrics.
 
@@ -148,15 +154,6 @@ class BenchmarkRunner:
             "classes": {},
         }
 
-        # Class Mapping
-        # For simplicity, we map visual elements to 'figure' and textual ones to 'plain text'
-        def map_class(cls_name):
-            cls_lower = str(cls_name).lower()
-            if cls_lower in ["figure", "image", "picture"]:
-                return "figure"
-            # Map everything else to 'plain text' for this specific dataset benchmark
-            return "plain text"
-
         # Run inference and compute metrics for each image
         logger.info("Running evaluation...")
         metric_totals = {metric: 0.0 for metric in metrics if metric != "map"}
@@ -175,12 +172,22 @@ class BenchmarkRunner:
 
             # Update MAP metric globally (with mapped classes)
             if map_metric:
-                mapped_preds = []
-                for p in predictions:
-                    p_copy = p.copy()
-                    p_copy["class"] = map_class(p["class"])
-                    mapped_preds.append(p_copy)
-                map_metric.update(mapped_preds, ground_truth)
+                if map_ignore_class:
+                    mapped_preds = []
+                    for p in predictions:
+                        p_copy = p.copy()
+                        p_copy["class"] = "object"
+                        mapped_preds.append(p_copy)
+
+                    mapped_gt = []
+                    for g in ground_truth:
+                        g_copy = g.copy()
+                        g_copy["class"] = "object"
+                        mapped_gt.append(g_copy)
+
+                    map_metric.update(mapped_preds, mapped_gt)
+                else:
+                    map_metric.update(predictions, ground_truth)
 
             # Get image dimensions for metrics that need them
             try:
