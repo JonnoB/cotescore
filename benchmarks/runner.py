@@ -1,11 +1,6 @@
-"""
-Benchmark runner for evaluating models on the NCSE dataset.
+"""Benchmark runner for evaluating models on the NCSE dataset."""
 
-This module orchestrates the evaluation of document layout analysis models
-using both standard (IoU, mAP) and custom (Coverage, Overlap) metrics.
-"""
-
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 from pathlib import Path
 import json
 import logging
@@ -14,12 +9,24 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from cot_score.dataset import NCSEDataset, DocLayNetDataset
-from cot_score.metrics import coverage, overlap, trespass, excess, cote_score as cot_score, mean_iou
+from cot_score.dataset import NCSEDataset
+from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cot_score.metrics import (
+    coverage,
+    overlap,
+    trespass,
+    excess,
+    cote_score as cot_score,
+    mean_iou,
+)
 from cot_score.map_metric import MAPMetric
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+EVAL_MAX_DIM = 2000
+
 
 
 class BenchmarkRunner:
@@ -183,6 +190,10 @@ class BenchmarkRunner:
                 logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
                 image_width, image_height = 1000, 1000  # Default fallback
 
+            w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
+            gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
+            pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
+
             # Compute standard per-image metrics
             image_metrics = {}
             for metric_name in metrics:
@@ -191,17 +202,15 @@ class BenchmarkRunner:
                 elif metric_name == "mean_iou":
                     score = mean_iou(predictions, ground_truth)
                 elif metric_name == "coverage":
-                    score = coverage(predictions, ground_truth, image_width, image_height)
+                    score = coverage(gt_ssu_map, pred_masks)
                 elif metric_name == "overlap":
-                    score = overlap(predictions, ground_truth, image_width, image_height)
+                    score = overlap(gt_ssu_map, pred_masks)
                 elif metric_name == "trespass":
-                    score = trespass(predictions, ground_truth, image_width, image_height)
+                    score = trespass(gt_ssu_map, pred_masks)
                 elif metric_name == "excess":
-                    score = excess(predictions, ground_truth, image_width, image_height)
+                    score = excess(gt_ssu_map, pred_masks)
                 elif metric_name == "cot_score":
-                    score = cot_score(predictions, ground_truth, image_width, image_height)[
-                        0
-                    ]  # Unpack tuple
+                    score = cot_score(gt_ssu_map, pred_masks)[0]  # Unpack tuple
                 else:
                     logger.warning(f"Unknown per-image metric: {metric_name}")
                     score = 0.0

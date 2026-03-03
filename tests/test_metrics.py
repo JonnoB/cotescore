@@ -2,6 +2,7 @@
 
 import pytest
 import numpy as np
+from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cot_score.metrics import (
     coverage,
     overlap,
@@ -23,6 +24,19 @@ from tests.reference_metrics import (
 TOLERANCE = 1e-5
 
 
+def _boxes_to_gt_ssu_map(gt_boxes, image_width: int, image_height: int) -> np.ndarray:
+    gt_boxes_with_id = []
+    for idx, g in enumerate(gt_boxes, start=1):
+        gg = dict(g)
+        gg["ssu_id"] = idx
+        gt_boxes_with_id.append(gg)
+    return boxes_to_gt_ssu_map(gt_boxes_with_id, image_width, image_height, scale=1.0)
+
+
+def _boxes_to_pred_masks(pred_boxes, image_width: int, image_height: int):
+    return boxes_to_pred_masks(pred_boxes, image_width, image_height, scale=1.0)
+
+
 class TestCoverage:
     """Tests for the coverage metric."""
 
@@ -31,7 +45,9 @@ class TestCoverage:
         pred = [{"x": 0, "y": 0, "width": 100, "height": 100}]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = coverage(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         assert abs(result - 1.0) < TOLERANCE
@@ -42,7 +58,9 @@ class TestCoverage:
         pred = [{"x": 0, "y": 0, "width": 10, "height": 10}]
         gt = [{"x": 100, "y": 100, "width": 10, "height": 10}]
 
-        result = coverage(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=110, image_height=110)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=110, image_height=110)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         assert abs(result - 0.0) < TOLERANCE
@@ -54,7 +72,9 @@ class TestCoverage:
         pred = [{"x": 0, "y": 0, "width": 50, "height": 100}]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = coverage(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         assert abs(result - 0.5) < TOLERANCE
@@ -68,7 +88,9 @@ class TestCoverage:
         ]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = coverage(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         # Should cover 110% (overlapping predictions), but capped at 100%
@@ -83,7 +105,9 @@ class TestCoverage:
             {"x": 200, "y": 200, "width": 100, "height": 100},
         ]
 
-        result = coverage(pred, gt, image_width=400, image_height=400)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=400, image_height=400)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=400, image_height=400)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         # Covers first GT completely, second GT not at all = 50%
@@ -95,7 +119,8 @@ class TestCoverage:
         pred = []
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = coverage(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        result = coverage(gt_map, [])
         reference = ref_coverage(pred, gt)
 
         assert abs(result - 0.0) < TOLERANCE
@@ -106,7 +131,9 @@ class TestCoverage:
         pred = [{"x": 0, "y": 0, "width": 100, "height": 100}]
         gt = []
 
-        result = coverage(pred, gt, image_width=100, image_height=100)
+        gt_map = np.zeros((100, 100), dtype=np.int32)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         # When GT is empty and predictions exist, coverage is 0
@@ -118,7 +145,8 @@ class TestCoverage:
         pred = []
         gt = []
 
-        result = coverage(pred, gt, image_width=100, image_height=100)
+        gt_map = np.zeros((100, 100), dtype=np.int32)
+        result = coverage(gt_map, [])
         reference = ref_coverage(pred, gt)
 
         # When both are empty, coverage is perfect (1.0)
@@ -136,7 +164,9 @@ class TestCoverage:
             {"x": 118, "y": 23, "width": 85, "height": 62},
         ]
 
-        result = coverage(pred, gt, image_width=250, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=250, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=250, image_height=100)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         assert 0.0 < result < 1.0  # Should be partial coverage
@@ -151,7 +181,9 @@ class TestOverlap:
         pred = []
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = overlap(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = []
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         assert abs(result - 0.0) < TOLERANCE
@@ -162,7 +194,9 @@ class TestOverlap:
         pred = [{"x": 0, "y": 0, "width": 100, "height": 100}]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = overlap(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         # Single prediction cannot overlap with itself
@@ -177,7 +211,9 @@ class TestOverlap:
         ]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = overlap(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         assert abs(result - 0.0) < TOLERANCE
@@ -191,7 +227,9 @@ class TestOverlap:
         ]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = overlap(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         # Complete overlap
@@ -206,7 +244,9 @@ class TestOverlap:
         ]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = overlap(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         # Partial overlap
@@ -221,7 +261,9 @@ class TestOverlap:
         ]
         gt = []
 
-        result = overlap(pred, gt, image_width=100, image_height=100)
+        gt_map = np.zeros((100, 100), dtype=np.int32)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         assert abs(result - 0.0) < TOLERANCE
@@ -236,7 +278,9 @@ class TestOverlap:
         ]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
-        result = overlap(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         assert 0.0 < result < 1.0
@@ -444,7 +488,9 @@ class TestVectorizedCorrectness:
         pred = self._generate_random_boxes(5, seed=1)
         gt = self._generate_random_boxes(5, seed=2)
 
-        result = coverage(pred, gt, image_width=1000, image_height=1000)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         # assert abs(result - reference) < TOLERANCE # Not valid for raw overlap comparison
@@ -454,7 +500,9 @@ class TestVectorizedCorrectness:
         pred = self._generate_random_boxes(20, seed=3)
         gt = self._generate_random_boxes(20, seed=4)
 
-        result = coverage(pred, gt, image_width=1000, image_height=1000)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         # Mask-based implementation has slight discretization error vs exact float reference
@@ -466,7 +514,9 @@ class TestVectorizedCorrectness:
         pred = self._generate_random_boxes(5, seed=5)
         gt = self._generate_random_boxes(5, seed=6)
 
-        result = overlap(pred, gt, image_width=1000, image_height=1000)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         # assert abs(result - reference) < TOLERANCE # Not valid for raw overlap comparison
@@ -476,7 +526,9 @@ class TestVectorizedCorrectness:
         pred = self._generate_random_boxes(15, seed=7)
         gt = self._generate_random_boxes(15, seed=8)
 
-        result = overlap(pred, gt, image_width=1000, image_height=1000)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result = overlap(gt_map, pred_masks)
         reference = ref_overlap(pred, gt)
 
         # assert abs(result - reference) < TOLERANCE # Not valid for raw overlap comparison
@@ -511,7 +563,9 @@ class TestEdgeCases:
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
 
         # Should handle gracefully
-        cov = coverage(pred, gt, image_width=200, image_height=200)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=200, image_height=200)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=200, image_height=200)
+        cov = coverage(gt_map, pred_masks)
         ref_cov = ref_coverage(pred, gt)
         assert abs(cov - ref_cov) < TOLERANCE
 
@@ -531,7 +585,9 @@ class TestEdgeCases:
         pred = [{"x": 0, "y": 0, "width": 10000, "height": 10000}]
         gt = [{"x": 0, "y": 0, "width": 10000, "height": 10000}]
 
-        result = coverage(pred, gt, image_width=200, image_height=200)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=200, image_height=200)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=200, image_height=200)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         assert abs(result - 1.0) < TOLERANCE
@@ -542,7 +598,9 @@ class TestEdgeCases:
         pred = [{"x": -50, "y": -50, "width": 100, "height": 100}]
         gt = [{"x": -50, "y": -50, "width": 100, "height": 100}]
 
-        result = coverage(pred, gt, image_width=200, image_height=200)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=200, image_height=200)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=200, image_height=200)
+        result = coverage(gt_map, pred_masks)
         reference = ref_coverage(pred, gt)
 
         assert abs(result - 1.0) < TOLERANCE
@@ -564,7 +622,9 @@ class TestTrespass:
             {"x": 20, "y": 0, "width": 10, "height": 10},
         ]
         # Pred 1 overlaps GT 1 (100) and GT 2 (0). Best match GT 1. Trespass 0.
-        assert abs(trespass(pred, gt, image_width=100, image_height=100) - 0.0) < TOLERANCE
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        assert abs(trespass(gt_map, pred_masks) - 0.0) < TOLERANCE
 
     def test_trespass_overlap(self):
         """Single prediction overlapping two GTs."""
@@ -586,7 +646,9 @@ class TestTrespass:
         ]
         pred = [{"x": 0, "y": 0, "width": 12, "height": 10}]
 
-        result = trespass(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = trespass(gt_map, pred_masks)
         expected = 20.0 / 200.0  # 0.1
         assert abs(result - expected) < TOLERANCE
 
@@ -612,7 +674,9 @@ class TestTrespass:
             {"x": 5, "y": 0, "width": 25, "height": 10},  # P2
         ]
 
-        result = trespass(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = trespass(gt_map, pred_masks)
         expected = 50.0 / (2 * 100)  # 0.25
         assert abs(result - expected) < TOLERANCE
 
@@ -621,7 +685,9 @@ class TestTrespass:
         gt = [{"x": 0, "y": 0, "width": 10, "height": 10}]
         pred = [{"x": 0, "y": 0, "width": 15, "height": 10}]
         # m = 1, so per Equation 13: T = 0
-        assert abs(trespass(pred, gt, image_width=100, image_height=100) - 0.0) < TOLERANCE
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        assert abs(trespass(gt_map, pred_masks) - 0.0) < TOLERANCE
 
     def test_trespass_no_predictions(self):
         """No predictions - zero trespass."""
@@ -630,7 +696,8 @@ class TestTrespass:
             {"x": 20, "y": 0, "width": 10, "height": 10},
         ]
         pred = []
-        assert abs(trespass(pred, gt, image_width=100, image_height=100) - 0.0) < TOLERANCE
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        assert abs(trespass(gt_map, []) - 0.0) < TOLERANCE
 
     def test_trespass_different_gt_sizes(self):
         """Test with different GT sizes - normalization by smallest."""
@@ -647,7 +714,9 @@ class TestTrespass:
         # GT2: x=20 to 40, no intersection
         # Best match: GT1
         # No trespass
-        assert abs(trespass(pred, gt, image_width=100, image_height=100) - 0.0) < TOLERANCE
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        assert abs(trespass(gt_map, pred_masks) - 0.0) < TOLERANCE
 
 
 class TestExcess:
@@ -661,7 +730,9 @@ class TestExcess:
         # Image 100x100, GT area 100, white space 9900
         # Pred area 100, all overlaps GT
         # Excess = 0 / 9900 = 0.0
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = excess(gt_map, pred_masks)
         assert abs(result - 0.0) < TOLERANCE
 
     def test_excess_background(self):
@@ -677,7 +748,9 @@ class TestExcess:
         # Pred in white space = 150 - 100 = 50
         # Excess score = 50 / 9900 ≈ 0.00505
 
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = excess(gt_map, pred_masks)
         expected = 50.0 / 9900.0
         assert abs(result - expected) < TOLERANCE
 
@@ -691,7 +764,9 @@ class TestExcess:
         # Pred in white space = 100 (no overlap with GT)
         # Excess = 100 / 9900 ≈ 0.0101
 
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = excess(gt_map, pred_masks)
         expected = 100.0 / 9900.0
         assert abs(result - expected) < TOLERANCE
 
@@ -713,7 +788,9 @@ class TestExcess:
         # Pred in white space = 300 - 200 = 100
         # Excess = 100 / 9800 ≈ 0.0102
 
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = excess(gt_map, pred_masks)
         expected = 100.0 / 9800.0
         assert abs(result - expected) < TOLERANCE
 
@@ -722,7 +799,8 @@ class TestExcess:
         gt = [{"x": 0, "y": 0, "width": 10, "height": 10}]
         pred = []
 
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        result = excess(gt_map, [])
         assert abs(result - 0.0) < TOLERANCE
 
     def test_excess_no_ground_truth(self):
@@ -736,7 +814,9 @@ class TestExcess:
         # Pred in white space = 100
         # Excess = 100 / 10000 = 0.01
 
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = np.zeros((100, 100), dtype=np.int32)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = excess(gt_map, pred_masks)
         expected = 100.0 / 10000.0
         assert abs(result - expected) < TOLERANCE
 
@@ -755,7 +835,9 @@ class TestExcess:
         # Pred in white space = 150
         # Excess = 150 / 9900 ≈ 0.01515
 
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = excess(gt_map, pred_masks)
         expected = 150.0 / 9900.0
         assert abs(result - expected) < TOLERANCE
 
@@ -772,7 +854,9 @@ class TestExcess:
         # Pred in white space = 10000 - 100 = 9900
         # Excess = 9900 / 9900 = 1.0
 
-        result = excess(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result = excess(gt_map, pred_masks)
         assert abs(result - 1.0) < TOLERANCE
 
 
@@ -791,7 +875,9 @@ class TestCOTScore:
             {"x": 20, "y": 0, "width": 10, "height": 10},
         ]
 
-        result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result, _, _, _, _ = cot_score(gt_map, pred_masks)
         assert abs(result - 1.0) < TOLERANCE
 
     def test_cot_no_predictions(self):
@@ -800,7 +886,8 @@ class TestCOTScore:
         pred = []
         gt = [{"x": 0, "y": 0, "width": 10, "height": 10}]
 
-        result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        result, _, _, _, _ = cot_score(gt_map, [])
         assert abs(result - 0.0) < TOLERANCE
 
     def test_cot_single_prediction(self):
@@ -809,7 +896,9 @@ class TestCOTScore:
         pred = [{"x": 0, "y": 0, "width": 10, "height": 10}]
         gt = [{"x": 0, "y": 0, "width": 10, "height": 10}]
 
-        result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result, _, _, _, _ = cot_score(gt_map, pred_masks)
         # C=1, O=0, T=0 → COT = 1
         assert abs(result - 1.0) < TOLERANCE
 
@@ -827,7 +916,9 @@ class TestCOTScore:
         # T=0 (single GT, no trespass possible)
         # COT = 1 - 1 - 0 = 0.0
 
-        result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result, _, _, _, _ = cot_score(gt_map, pred_masks)
         assert abs(result - 0.0) < TOLERANCE
 
     def test_cot_with_trespass(self):
@@ -844,10 +935,12 @@ class TestCOTScore:
             {"x": 0, "y": 0, "width": 12, "height": 10},  # Overlaps both GTs
         ]
 
-        C = coverage(pred, gt, image_width=100, image_height=100)
-        O = overlap(pred, gt, image_width=100, image_height=100)
-        T = trespass(pred, gt, image_width=100, image_height=100)
-        result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        C = coverage(gt_map, pred_masks)
+        O = overlap(gt_map, pred_masks)
+        T = trespass(gt_map, pred_masks)
+        result, _, _, _, _ = cot_score(gt_map, pred_masks)
         expected = C - O - T
         assert abs(result - expected) < TOLERANCE
 
@@ -860,7 +953,9 @@ class TestCOTScore:
         # C = 0.5, O = 0, T = 0
         # COT = 0.5
 
-        result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result, _, _, _, _ = cot_score(gt_map, pred_masks)
         assert abs(result - 0.5) < TOLERANCE
 
     def test_cot_maximum_error(self):
@@ -884,7 +979,9 @@ class TestCOTScore:
             {"x": 0, "y": 0, "width": 30, "height": 10},
         ]
 
-        result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+        result, _, _, _, _ = cot_score(gt_map, pred_masks)
 
         # C should be 1.0 (full coverage)
         # O should be 1.0 (complete overlap)
@@ -902,11 +999,11 @@ class TestCOTScore:
 
         # C=1, O=1, T=0
         # With weights (2, 1, 1): COT = 2*1 - 1*1 - 1*0 = 1.0
+        gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
         result, _, _, _, _ = cot_score(
-            pred,
-            gt,
-            image_width=100,
-            image_height=100,
+            gt_map,
+            pred_masks,
             weight_coverage=2.0,
             weight_overlap=1.0,
             weight_trespass=1.0,
@@ -935,6 +1032,8 @@ class TestCOTScore:
         ]
 
         for pred, gt in test_cases:
-            result, _, _, _, _ = cot_score(pred, gt, image_width=100, image_height=100)
+            gt_map = _boxes_to_gt_ssu_map(gt, image_width=100, image_height=100)
+            pred_masks = _boxes_to_pred_masks(pred, image_width=100, image_height=100)
+            result, _, _, _, _ = cot_score(gt_map, pred_masks)
             # With equal weights, COT should be in [-1, 1]
             assert -1.0 <= result <= 1.0

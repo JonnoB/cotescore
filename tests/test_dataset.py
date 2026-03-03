@@ -17,6 +17,10 @@ class TestNCSEDataset:
     @pytest.fixture
     def dataset(self, dataset_path):
         """Create a dataset instance."""
+        csv_path = dataset_path / "ncse_testset_bboxes.csv"
+        images_dir = dataset_path / "ncse_test_png_120"
+        if not csv_path.exists() or not images_dir.exists():
+            pytest.skip("NCSE dataset files not present; skipping integration tests")
         return NCSEDataset(dataset_path, split="test")
 
     def test_dataset_initialization(self, dataset_path):
@@ -59,12 +63,15 @@ class TestNCSEDataset:
         assert "width" in annotation
         assert "height" in annotation
         assert "class" in annotation
+        assert "ssu_id" in annotation
+        assert "ssu_class" in annotation
 
         # Check types
         assert isinstance(annotation["x"], float)
         assert isinstance(annotation["y"], float)
         assert isinstance(annotation["width"], float)
         assert isinstance(annotation["height"], float)
+        assert isinstance(annotation["ssu_id"], int)
 
         # Check valid values
         assert annotation["width"] > 0
@@ -98,6 +105,10 @@ class TestNCSEDataset:
 
     def test_lazy_loading(self, dataset_path):
         """Test that dataset loading is lazy."""
+        csv_path = dataset_path / "ncse_testset_bboxes.csv"
+        images_dir = dataset_path / "ncse_test_png_120"
+        if not csv_path.exists() or not images_dir.exists():
+            pytest.skip("NCSE dataset files not present; skipping integration tests")
         dataset = NCSEDataset(dataset_path, split="test")
         assert not dataset._loaded
 

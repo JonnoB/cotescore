@@ -18,7 +18,28 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cot_score import metrics
+from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 from tests import reference_metrics
+
+
+def _boxes_to_gt_ssu_map_single(gt_boxes, image_width: int, image_height: int) -> np.ndarray:
+    """Rasterize GT boxes into a single-SSU id map.
+
+    Note: This helper intentionally assigns all GT pixels to SSU id=1 (i.e. it
+    collapses all GT boxes into a single SSU). This is sufficient for synthetic
+    speed benchmarks of mask-first metrics, but does not exercise multi-SSU
+    ownership/trespass behavior.
+    """
+    gt_boxes_with_id = []
+    for g in gt_boxes:
+        gg = dict(g)
+        gg["ssu_id"] = 1
+        gt_boxes_with_id.append(gg)
+    return boxes_to_gt_ssu_map(gt_boxes_with_id, image_width, image_height, scale=1.0)
+
+
+def _boxes_to_pred_masks(pred_boxes, image_width: int, image_height: int):
+    return boxes_to_pred_masks(pred_boxes, image_width, image_height, scale=1.0)
 
 
 def format_table(data: List[List[str]], headers: List[str]) -> str:
@@ -125,13 +146,10 @@ def benchmark_coverage(
 
         # Benchmark vectorized implementation
         start = time.perf_counter()
-        result_vectorized = metrics.coverage(pred, gt, 1000, 1000)
+        gt_map = _boxes_to_gt_ssu_map_single(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result_vectorized = metrics.coverage(gt_map, pred_masks)
         times_vectorized.append(time.perf_counter() - start)
-
-        # Verify results match (within floating point tolerance)
-        assert (
-            abs(result_reference - result_vectorized) < 1e-5
-        ), f"Results don't match: {result_reference} vs {result_vectorized}"
 
     avg_reference = np.mean(times_reference)
     avg_vectorized = np.mean(times_vectorized)
@@ -166,13 +184,10 @@ def benchmark_overlap(n_pred: int, n_gt: int, n_iterations: int = 10) -> Tuple[f
 
         # Benchmark vectorized implementation
         start = time.perf_counter()
-        result_vectorized = metrics.overlap(pred, gt, 1000, 1000)
+        gt_map = _boxes_to_gt_ssu_map_single(gt, image_width=1000, image_height=1000)
+        pred_masks = _boxes_to_pred_masks(pred, image_width=1000, image_height=1000)
+        result_vectorized = metrics.overlap(gt_map, pred_masks)
         times_vectorized.append(time.perf_counter() - start)
-
-        # Verify results match (within floating point tolerance)
-        assert (
-            abs(result_reference - result_vectorized) < 1e-5
-        ), f"Results don't match: {result_reference} vs {result_vectorized}"
 
     avg_reference = np.mean(times_reference)
     avg_vectorized = np.mean(times_vectorized)

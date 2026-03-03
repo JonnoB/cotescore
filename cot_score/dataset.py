@@ -188,6 +188,14 @@ class NCSEDataset:
         Returns:
             List of annotation dictionaries
         """
+        required_cols = {"x1", "y1", "x2", "y2", "class", "ssu_id", "ssu_class"}
+        missing = required_cols - set(image_annotations.columns)
+        if missing:
+            raise ValueError(
+                "NCSE annotations CSV is missing required columns: "
+                + ", ".join(sorted(missing))
+            )
+
         annotations = []
         for _, row in image_annotations.iterrows():
             x1, y1, x2, y2 = row["x1"], row["y1"], row["x2"], row["y2"]
@@ -197,6 +205,8 @@ class NCSEDataset:
                 "width": float(x2 - x1),
                 "height": float(y2 - y1),
                 "class": row["class"],
+                "ssu_id": int(row["ssu_id"]),
+                "ssu_class": row["ssu_class"],
                 "confidence": row.get("confidence", 1.0),
                 "page_id": row.get("page_id", ""),
             }
