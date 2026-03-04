@@ -10,7 +10,9 @@ from typing import Dict, List, Any, Optional
 import re
 import json
 import logging
+import xml.etree.ElementTree as ET
 import pandas as pd
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -262,39 +264,36 @@ class NCSEDataset:
 
 
 class DocLayNetDataset:
-    """Loader for the DocLayNet dataset using HuggingFace datasets."""
+    """Loader for the DocLayNet dataset from local HuggingFace parquet files."""
 
     def __init__(
         self,
-        dataset_path: Path = Path("/teamspace/lightning_storage/doclayout"),
-        split: str = "val",
+        dataset_path: Optional[Path] = None,
+        split: str = "test",
     ):
         """
         Initialize the DocLayNet dataset loader.
 
         Args:
-            dataset_path: Path to store local downloaded representations of images for benchmarking.
-                Defaults to /teamspace/lightning_storage/doclayout.
-            split: Dataset split to load ('train', 'val', or 'test'). Note: HF dataset uses 'validation' for 'val'.
+            dataset_path: Path to a directory containing DocLayNet HuggingFace parquet
+                files (e.g. ``test-00001-of-00001.parquet``).  Images are extracted from
+                the parquet rows and cached under ``dataset_path/PNG/``.
+                If None or the directory contains no parquet files, the dataset is
+                downloaded from HuggingFace (``docling-project/DocLayNet-v1.2``) and
+                images are cached under ``/teamspace/lightning_storage/doclayout/PNG/``.
+            split: Dataset split to load ('train', 'val', or 'test').  Used both as a
+                logging label and (when downloading from HF) to select the correct split.
         """
-        self.dataset_path = Path(dataset_path)
-
-        # DocLayNet HF uses 'validation' instead of 'val'
-        if split == "val":
-            self.split = "validation"
-        else:
-            self.split = split
-
-        if self.split not in ("train", "validation", "test"):
-            raise ValueError("Split must be one of 'train', 'val', or 'test'.")
-
-        self.images_dir = self.dataset_path / "PNG"
+        self.dataset_path = Path(dataset_path) if dataset_path is not None else None
+        self.split = split
+        _cache_root = self.dataset_path if self.dataset_path is not None else Path("/teamspace/lightning_storage/doclayout")
+        self.images_dir = _cache_root / "PNG"
 
         self.images = []
         self.annotations_by_image = {}
         self._loaded = False
 
-        # DocLayNet-v1.1 HF category ID mapping
+        # DocLayNet-v1.1/v1.2 HF category ID mapping
         self.category_names = {
             1: "Caption",
             2: "Footnote",
@@ -310,38 +309,49 @@ class DocLayNetDataset:
         }
 
     def load(self):
-        """Load the dataset via HuggingFace datasets."""
+        """Load the dataset, from local parquet files if available, else from HuggingFace."""
         if self._loaded:
             return
 
         import datasets
 
-        # We ensure the image directory exists
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Loading docling-project/DocLayNet-v1.2 {self.split} split...")
-        # Only download the specific split's parquet files via data_files.
-        # We use split="train" as the virtual key and verification_mode="no_checks"
-        # to prevent the library from downloading all splits.
-        ds = datasets.load_dataset(
-            "docling-project/DocLayNet-v1.2",
-            data_files=f"data/{self.split}-*.parquet",
-            split="train",
-            verification_mode="no_checks",
+        # Determine whether local parquet files are available
+        local_parquet = (
+            sorted(self.dataset_path.glob("*.parquet")) if self.dataset_path is not None else []
         )
+
+        if local_parquet:
+            logger.info(f"Loading DocLayNet from {self.dataset_path} ({len(local_parquet)} parquet files)...")
+            ds = datasets.load_dataset(
+                "parquet",
+                data_files=str(self.dataset_path / "*.parquet"),
+                split="train",
+            )
+        else:
+            # Fall back to HuggingFace download
+            hf_split = "validation" if self.split == "val" else self.split
+            logger.info(f"No local parquet files found — downloading DocLayNet-v1.2 '{hf_split}' split from HuggingFace...")
+            ds = datasets.load_dataset(
+                "docling-project/DocLayNet-v1.2",
+                data_files=f"data/{hf_split}-*.parquet",
+                split="train",
+                verification_mode="no_checks",
+            )
 
         for i, row in enumerate(ds):
             # Row has: image, bboxes, category_id, area, metadata
             metadata = row.get("metadata", {})
             original_filename = metadata.get("original_filename", f"doclaynet_{self.split}_{i}.png")
 
-            # The name might be a .pdf in the metadata, ensure we save it as a .png
+            # Ensure PNG extension
             if not original_filename.lower().endswith(".png"):
                 original_filename += ".png"
 
             image_path = self.images_dir / original_filename
 
-            # Save image if it doesn't exist
+            # Cache image to disk if not already present
             if not image_path.exists():
                 img = row["image"]
                 img.save(image_path)
@@ -372,6 +382,8 @@ class DocLayNetDataset:
                         "width": float(w),
                         "height": float(h),
                         "class": class_name,
+                        "ssu_id": j + 1,
+                        "ssu_class": "object",
                         "confidence": 1.0,
                         "area": float(area),
                     }
@@ -426,4 +438,167 @@ class DocLayNetDataset:
         if idx < 0 or idx >= len(self.images):
             raise IndexError(f"Index {idx} out of range for dataset of size " f"{len(self.images)}")
 
+        return self.annotations_by_image[self.images[idx]]
+
+
+class HNLA2013Dataset:
+    """Loader for the HNLA2013 dataset with SSU-tagged PAGE XML ground truth."""
+
+    _NS = {"page": "http://schema.primaresearch.org/PAGE/gts/pagecontent/2010-03-19"}
+    _SSU_ID_RE = re.compile(r"id:([^;]+);")
+
+    def __init__(
+        self,
+        images_path: Path,
+        groundtruth_path: Path,
+        image_ext: str = "png",
+    ):
+        """
+        Initialize the HNLA2013 dataset loader.
+
+        Args:
+            images_path: Flat directory containing TIFF image files
+            groundtruth_path: Directory containing PAGE XML files with SSU annotations
+                              (e.g. groundtruth_with_ssu/)
+            image_ext: Image file extension to glob for (default: 'png')
+        """
+        self.images_path = Path(images_path)
+        self.groundtruth_path = Path(groundtruth_path)
+        self.image_ext = image_ext
+        self.images = []
+        self.annotations_by_image = {}
+        self._loaded = False
+
+    def load(self):
+        """Load the dataset from disk."""
+        if self._loaded:
+            return
+
+        if not self.images_path.exists():
+            raise FileNotFoundError(f"Images directory not found: {self.images_path}")
+        if not self.groundtruth_path.exists():
+            raise FileNotFoundError(f"Ground truth directory not found: {self.groundtruth_path}")
+
+        # Build stem -> xml_path map, stripping the "pc-" prefix used in HNLA2013 XML filenames
+        xml_by_stem = {}
+        for xml_path in self.groundtruth_path.glob("*.xml"):
+            stem = xml_path.stem
+            if stem.startswith("pc-"):
+                stem = stem[3:]
+            xml_by_stem[stem] = xml_path
+
+        for img_path in sorted(self.images_path.glob(f"*.{self.image_ext}")):
+            xml_path = xml_by_stem.get(img_path.stem)
+            if xml_path is None:
+                logger.warning(f"No ground truth XML found for {img_path.name}, skipping")
+                continue
+
+            annotations, orig_w, orig_h = self._parse_xml(xml_path, img_path.stem)
+
+            # If the image on disk has been downsampled (e.g. TIFF → smaller PNG),
+            # rescale GT coordinates from original XML space to the image file space
+            # so that GT and model predictions share the same coordinate system.
+            if orig_w > 0:
+                with Image.open(img_path) as im:
+                    img_w, img_h = im.size
+                if img_w != orig_w:
+                    scale = img_w / orig_w
+                    for ann in annotations:
+                        ann["x"] *= scale
+                        ann["y"] *= scale
+                        ann["width"] *= scale
+                        ann["height"] *= scale
+
+            self.images.append(str(img_path))
+            self.annotations_by_image[str(img_path)] = annotations
+
+        self._loaded = True
+
+    def _parse_xml(self, xml_path: Path, page_id: str) -> tuple:
+        """Parse a PAGE XML file and return (annotations, orig_width, orig_height)."""
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        ns = self._NS
+
+        page_elem = root.find("page:Page", ns)
+        orig_w = int(page_elem.get("imageWidth", 0)) if page_elem is not None else 0
+        orig_h = int(page_elem.get("imageHeight", 0)) if page_elem is not None else 0
+
+        regions = root.findall(".//page:TextRegion", ns)
+
+        # Assign stable per-page integer SSU IDs (1-indexed; 0 = background)
+        ssu_strings: List[str] = []
+        for region in regions:
+            m = self._SSU_ID_RE.search(region.get("custom", ""))
+            if m:
+                ssu_str = m.group(1).strip()
+                if ssu_str not in ssu_strings:
+                    ssu_strings.append(ssu_str)
+        ssu_to_int = {s: i + 1 for i, s in enumerate(ssu_strings)}
+
+        annotations = []
+        for region in regions:
+            coords_elem = region.find("page:Coords", ns)
+            if coords_elem is None:
+                continue
+            points_str = coords_elem.get("points", "")
+            try:
+                if points_str:
+                    points = [tuple(int(v) for v in pt.split(",")) for pt in points_str.split()]
+                else:
+                    points = [
+                        (int(pt.get("x")), int(pt.get("y")))
+                        for pt in coords_elem.findall("page:Point", ns)
+                    ]
+                if not points:
+                    continue
+                xs = [p[0] for p in points]
+                ys = [p[1] for p in points]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse Coords in {xml_path.name}, skipping region")
+                continue
+
+            m = self._SSU_ID_RE.search(region.get("custom", ""))
+            ssu_str = m.group(1).strip() if m else None
+            ssu_id = ssu_to_int.get(ssu_str, 0) if ssu_str else 0
+
+            annotations.append(
+                {
+                    "x": float(x1),
+                    "y": float(y1),
+                    "width": float(x2 - x1),
+                    "height": float(y2 - y1),
+                    "class": region.get("type", "text"),
+                    "ssu_id": ssu_id,
+                    "ssu_class": "object",
+                    "confidence": 1.0,
+                    "page_id": page_id,
+                }
+            )
+
+        return annotations, orig_w, orig_h
+
+    def __len__(self) -> int:
+        if not self._loaded:
+            self.load()
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
+        image_path = self.images[idx]
+        return {
+            "image_path": image_path,
+            "annotations": self.annotations_by_image[image_path],
+            "filename": Path(image_path).name,
+        }
+
+    def get_annotations(self, idx: int) -> List[Dict[str, Any]]:
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
         return self.annotations_by_image[self.images[idx]]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Visualize document layout model predictions on NCSE test images.
+Visualize document layout model predictions on HNLA2013 images.
 Supports multiple model types: DocLayout-YOLO, Docling Heron, etc.
 """
 
@@ -10,8 +10,6 @@ import json
 import logging
 from pathlib import Path
 
-import cv2
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 # Add project root to path
@@ -20,8 +18,11 @@ sys.path.insert(0, str(project_root))
 
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
-from cot_score.dataset import NCSEDataset
+from cot_score.dataset import HNLA2013Dataset
+from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cot_score.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
+
+EVAL_MAX_DIM = 2000
 
 COLORS = {
     "ground_truth": (0, 255, 0),
@@ -70,7 +71,6 @@ def create_comparison_image(
     pred_img = draw_boxes_pil(image_path, predictions, COLORS["prediction"], "P: ", 2, 16)
 
     width, height = gt_img.size
-    # Increase padding to accommodate more metrics (6 metrics with descriptions)
     padding = 300
     comparison = Image.new("RGB", (width * 2 + 40, height + padding), COLORS["background"])
 
@@ -85,7 +85,6 @@ def create_comparison_image(
     filename = Path(image_path).name
     draw.text((20, 20), f"Image: {filename}", fill=COLORS["text"], font=title_font)
 
-    # Add model name if provided
     if model_name:
         draw.text((20, 50), f"Model: {model_name}", fill=(180, 180, 180), font=small_font)
 
@@ -115,14 +114,11 @@ def create_comparison_image(
         "cote_score": "Overall quality (C-O-T)",
     }
 
-    # Define metric order for display
     metric_order = ["cote_score", "coverage", "overlap", "trespass", "excess", "mean_iou"]
     sorted_metrics = {k: metrics[k] for k in metric_order if k in metrics}
 
     for metric, score in sorted_metrics.items():
-        # Color coding based on metric type
         if metric == "cote_score":
-            # COT score: green if > 0.7, red if < 0, yellow otherwise
             if score > 0.7:
                 color = COLORS["ground_truth"]
             elif score < 0:
@@ -130,21 +126,18 @@ def create_comparison_image(
             else:
                 color = COLORS["text"]
         elif metric in ["overlap", "trespass", "excess"]:
-            # Lower is better
             color = (
                 COLORS["ground_truth"]
                 if score < 0.2
                 else (COLORS["prediction"] if score > 0.5 else COLORS["text"])
             )
         else:
-            # Higher is better (coverage, mean_iou)
             color = (
                 COLORS["ground_truth"]
                 if score > 0.8
                 else (COLORS["prediction"] if score < 0.5 else COLORS["text"])
             )
 
-        # Format score with sign for COT score
         if metric == "cote_score":
             score_str = f"{score:+.4f}"
         else:
@@ -201,10 +194,21 @@ def create_overlay_image(image_path, ground_truth, predictions, output_path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Visualize predictions from document layout models"
+        description="Visualize predictions from document layout models on HNLA2013"
     )
-    parser.add_argument("--dataset", type=str, default="data/ncse", help="Dataset path")
-    parser.add_argument("--output", type=str, default="visualizations", help="Output directory")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        required=True,
+        help="Path to flat directory containing HNLA2013 PNG images",
+    )
+    parser.add_argument(
+        "--groundtruth",
+        type=str,
+        required=True,
+        help="Path to groundtruth_with_ssu/ directory containing PAGE XML files",
+    )
+    parser.add_argument("--output", type=str, default="visualizations/hnla2013", help="Output directory")
     parser.add_argument(
         "--model-type",
         type=str,
@@ -223,19 +227,18 @@ def main():
     parser.add_argument("--indices", nargs="+", type=int, help="Specific indices")
     parser.add_argument("--conf", type=float, default=0.2, help="Confidence threshold")
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu, cuda, mps)")
-    parser.add_argument("--overlay", action="store_true", help="Create overlay")
     parser.add_argument(
-        "--images-subdir",
+        "--image-ext",
         type=str,
-        default=None,
-        help="Name of images subdirectory (default: ncse_test_png_120)",
+        default="png",
+        help="Image file extension (default: png)",
     )
+    parser.add_argument("--overlay", action="store_true", help="Create overlay image")
 
     args = parser.parse_args()
     output_path = Path(args.output)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Set default model names based on model type
     if args.model is None:
         if args.model_type == "yolo":
             args.model = "juliozhao/DocLayout-YOLO-DocStructBench"
@@ -243,10 +246,15 @@ def main():
             args.model = "ds4sd/docling-layout-heron"
 
     print(f"Loading dataset: {args.dataset}")
-    dataset = NCSEDataset(Path(args.dataset), split="test", images_subdir=args.images_subdir)
+    print(f"Ground truth: {args.groundtruth}")
+    dataset = HNLA2013Dataset(
+        images_path=Path(args.dataset),
+        groundtruth_path=Path(args.groundtruth),
+        image_ext=args.image_ext,
+    )
     dataset.load()
+    print(f"Dataset loaded: {len(dataset)} images")
 
-    # Initialize the appropriate model based on type
     print(f"Initializing {args.model_type} model: {args.model}")
     if args.model_type == "yolo":
         model = DocLayoutYOLO(
@@ -277,24 +285,25 @@ def main():
         print(f"Processing {filename}...")
         predictions = model.predict(image_path)
 
-        # Get image dimensions for excess and cot_score
         with Image.open(image_path) as img:
             image_width, image_height = img.size
 
+        w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
+        gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
+        pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
+
         metrics = {
             "mean_iou": mean_iou(predictions, ground_truth),
-            "coverage": coverage(predictions, ground_truth, image_width, image_height),
-            "overlap": overlap(predictions, ground_truth, image_width, image_height),
-            "trespass": trespass(predictions, ground_truth, image_width, image_height),
-            "excess": excess(predictions, ground_truth, image_width, image_height),
-            "cot_score": cote_score(predictions, ground_truth, image_width, image_height)[
-                0
-            ],  # Unpack tuple
+            "coverage": coverage(gt_ssu_map, pred_masks),
+            "overlap": overlap(gt_ssu_map, pred_masks),
+            "trespass": trespass(gt_ssu_map, pred_masks),
+            "excess": excess(gt_ssu_map, pred_masks),
+            "cote_score": cote_score(gt_ssu_map, pred_masks)[0],
         }
 
         print(f"  GT: {len(ground_truth)}, Preds: {len(predictions)}")
         print(
-            f"  Metrics: COT={metrics['cot_score']:+.3f}, Cov={metrics['coverage']:.3f}, "
+            f"  Metrics: COT={metrics['cote_score']:+.3f}, Cov={metrics['coverage']:.3f}, "
             f"Ovlp={metrics['overlap']:.3f}, Tres={metrics['trespass']:.3f}, "
             f"Excess={metrics['excess']:.3f}, IoU={metrics['mean_iou']:.3f}"
         )
