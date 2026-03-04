@@ -223,21 +223,9 @@ class BenchmarkRunner:
         samples = [dataset[i] for i in range(n)]
         all_image_paths = [Path(s["image_path"]) for s in samples]
 
-        # --- Phase 2: Batched GPU inference ---
-        logger.info(f"Running batched inference (batch_size={batch_size})...")
-        try:
-            all_predictions = model.predict_batch(all_image_paths, batch_size=batch_size)
-        except Exception as e:
-            logger.error(f"predict_batch failed ({e}); falling back to single-image predict")
-            all_predictions = []
-            for path in tqdm(all_image_paths, desc="Predicting (fallback)"):
-                try:
-                    all_predictions.append(model.predict(path))
-                except Exception as ex:
-                    logger.error(f"Error predicting {path}: {ex}")
-                    all_predictions.append([])
-
-        # --- Phase 3: Parallel CPU metrics + serial MAP updates ---
+        # --- Phases 2+3: Pipelined inference and metrics ---
+        # Metric tasks for batch K are submitted immediately after inference completes,
+        # so CPU metric computation overlaps with GPU inference for batch K+1.
         map_metric = MAPMetric() if "map" in metrics else None
 
         results = {
@@ -250,26 +238,44 @@ class BenchmarkRunner:
         }
         metric_totals = {m: 0.0 for m in metrics if m != "map"}
 
-        logger.info(f"Computing metrics in parallel (workers={os.cpu_count()})...")
-
-        # Submit all metric tasks upfront; collect in order to keep MAP updates serial
         ordered_futures: List[Future] = []
-        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-            for sample, predictions in zip(samples, all_predictions):
-                ordered_futures.append(
-                    executor.submit(_compute_image_metrics, sample, predictions, metrics)
-                )
+        logger.info(f"Running pipelined inference + metrics (batch_size={batch_size}, workers={os.cpu_count()})...")
 
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            for start in tqdm(range(0, n, batch_size), desc="Inference"):
+                chunk_paths   = all_image_paths[start : start + batch_size]
+                chunk_samples = samples[start : start + batch_size]
+
+                # GPU inference for this chunk
+                try:
+                    chunk_preds = model.predict_batch(chunk_paths, batch_size=len(chunk_paths))
+                except Exception as e:
+                    logger.error(f"predict_batch failed on chunk {start}: {e}")
+                    chunk_preds = []
+                    for path in chunk_paths:
+                        try:
+                            chunk_preds.append(model.predict(path))
+                        except Exception as ex:
+                            logger.error(f"Error predicting {path}: {ex}")
+                            chunk_preds.append([])
+
+                # Immediately submit metrics to CPU threads — runs while GPU does next chunk
+                for sample, preds in zip(chunk_samples, chunk_preds):
+                    ordered_futures.append(
+                        executor.submit(_compute_image_metrics, sample, preds, metrics)
+                    )
+
+            # Collect in submission order to keep MAP updates serial
             for future in tqdm(ordered_futures, desc="Metrics"):
                 img_result = future.result()
 
                 # MAP update must stay serial and in-order (not thread-safe)
                 if map_metric:
                     preds = img_result["predictions"]
-                    gt = img_result["ground_truth"]
+                    gt    = img_result["ground_truth"]
                     if map_ignore_class:
                         preds = [{**p, "class": "object"} for p in preds]
-                        gt = [{**g, "class": "object"} for g in gt]
+                        gt    = [{**g, "class": "object"} for g in gt]
                     map_metric.update(preds, gt)
 
                 for metric_name, score in img_result["image_metrics"].items():
