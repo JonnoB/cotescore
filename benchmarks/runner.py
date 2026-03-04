@@ -121,6 +121,7 @@ class BenchmarkRunner:
         self.dataset_name = dataset_name.lower()
         self.groundtruth_path = Path(groundtruth_path) if groundtruth_path else None
         self.split = split
+        self._dataset = None  # cached dataset, loaded once across model runs
 
     def measure_latency(
         self, model, sample_image_path: Path, warmup: int = 10, repeats: int = 50
@@ -189,30 +190,33 @@ class BenchmarkRunner:
         if metrics is None:
             metrics = ["mean_iou", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
 
-        logger.info(f"Loading {self.dataset_name.upper()} dataset from {self.dataset_path}")
+        if self._dataset is None:
+            logger.info(f"Loading {self.dataset_name.upper()} dataset from {self.dataset_path}")
 
-        if self.dataset_name == "ncse":
-            dataset = NCSEDataset(
-                self.dataset_path,
-                split="test",
-                csv_filename=self.csv_filename,
-                images_subdir=self.images_subdir,
-                image_ext=self.image_ext,
-            )
-        elif self.dataset_name == "doclaynet":
-            dataset = DocLayNetDataset(self.dataset_path, split=self.split)
-        elif self.dataset_name == "hnla2013":
-            if self.groundtruth_path is None:
-                raise ValueError("groundtruth_path must be provided for hnla2013 dataset")
-            dataset = HNLA2013Dataset(
-                images_path=self.dataset_path,
-                groundtruth_path=self.groundtruth_path,
-                image_ext=self.image_ext,
-            )
-        else:
-            raise ValueError(f"Unknown dataset_name: {self.dataset_name}")
+            if self.dataset_name == "ncse":
+                self._dataset = NCSEDataset(
+                    self.dataset_path,
+                    split="test",
+                    csv_filename=self.csv_filename,
+                    images_subdir=self.images_subdir,
+                    image_ext=self.image_ext,
+                )
+            elif self.dataset_name == "doclaynet":
+                self._dataset = DocLayNetDataset(self.dataset_path, split=self.split)
+            elif self.dataset_name == "hnla2013":
+                if self.groundtruth_path is None:
+                    raise ValueError("groundtruth_path must be provided for hnla2013 dataset")
+                self._dataset = HNLA2013Dataset(
+                    images_path=self.dataset_path,
+                    groundtruth_path=self.groundtruth_path,
+                    image_ext=self.image_ext,
+                )
+            else:
+                raise ValueError(f"Unknown dataset_name: {self.dataset_name}")
 
-        dataset.load()
+            self._dataset.load()
+
+        dataset = self._dataset
         n = len(dataset)
         logger.info(f"Dataset loaded: {n} images")
 
