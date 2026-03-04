@@ -4,7 +4,9 @@ from typing import Dict, List, Any, Tuple
 from pathlib import Path
 import json
 import logging
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, Future
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -27,6 +29,59 @@ logger = logging.getLogger(__name__)
 
 EVAL_MAX_DIM = 2000
 
+
+def _compute_image_metrics(
+    sample: dict,
+    predictions: List[Dict],
+    metrics: List[str],
+) -> dict:
+    """
+    Compute all per-image metrics. Pure numpy — thread-safe.
+
+    Returns dict with keys: filename, predictions, ground_truth, image_metrics.
+    """
+    image_path = Path(sample["image_path"])
+    ground_truth = sample["annotations"]
+
+    try:
+        with Image.open(image_path) as img:
+            image_width, image_height = img.size
+    except Exception as e:
+        logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
+        image_width, image_height = 1000, 1000
+
+    w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
+    gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
+    pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
+
+    image_metrics = {}
+    for metric_name in metrics:
+        if metric_name == "map":
+            continue
+        elif metric_name == "mean_iou":
+            score = mean_iou(predictions, ground_truth)
+        elif metric_name == "coverage":
+            score = coverage(gt_ssu_map, pred_masks)
+        elif metric_name == "overlap":
+            score = overlap(gt_ssu_map, pred_masks)
+        elif metric_name == "trespass":
+            score = trespass(gt_ssu_map, pred_masks)
+        elif metric_name == "excess":
+            score = excess(gt_ssu_map, pred_masks)
+        elif metric_name == "cot_score":
+            score = cot_score(gt_ssu_map, pred_masks)[0]
+        else:
+            logger.warning(f"Unknown per-image metric: {metric_name}")
+            score = 0.0
+
+        image_metrics[metric_name] = score
+
+    return {
+        "filename": sample["filename"],
+        "predictions": predictions,
+        "ground_truth": ground_truth,
+        "image_metrics": image_metrics,
+    }
 
 
 class BenchmarkRunner:
@@ -114,13 +169,19 @@ class BenchmarkRunner:
         metrics: List[str] = None,
         *,
         map_ignore_class: bool = True,
+        batch_size: int = 16,
     ) -> Dict[str, Any]:
         """
         Run evaluation for a model using specified metrics.
 
+        Inference is batched (predict_batch) and per-image metric computation
+        runs in parallel on all CPU cores via ThreadPoolExecutor.
+
         Args:
             model: Model instance to evaluate
-            metrics: List of metric names (default: ['mean_iou', 'coverage', 'overlap', 'trespass', 'cot_score', 'map'])
+            metrics: List of metric names (default: all)
+            map_ignore_class: If True, collapse all classes to 'object' for mAP
+            batch_size: Number of images per GPU inference batch (default: 16)
 
         Returns:
             Dictionary containing evaluation results
@@ -152,105 +213,78 @@ class BenchmarkRunner:
             raise ValueError(f"Unknown dataset_name: {self.dataset_name}")
 
         dataset.load()
-        logger.info(f"Dataset loaded: {len(dataset)} images")
+        n = len(dataset)
+        logger.info(f"Dataset loaded: {n} images")
 
         if model.model is None:
             model.load()
 
-        # Initialize MAP metric if requested
+        # --- Phase 1: Collect all samples (fast — no disk I/O) ---
+        samples = [dataset[i] for i in range(n)]
+        all_image_paths = [Path(s["image_path"]) for s in samples]
+
+        # --- Phase 2: Batched GPU inference ---
+        logger.info(f"Running batched inference (batch_size={batch_size})...")
+        try:
+            all_predictions = model.predict_batch(all_image_paths, batch_size=batch_size)
+        except Exception as e:
+            logger.error(f"predict_batch failed ({e}); falling back to single-image predict")
+            all_predictions = []
+            for path in tqdm(all_image_paths, desc="Predicting (fallback)"):
+                try:
+                    all_predictions.append(model.predict(path))
+                except Exception as ex:
+                    logger.error(f"Error predicting {path}: {ex}")
+                    all_predictions.append([])
+
+        # --- Phase 3: Parallel CPU metrics + serial MAP updates ---
         map_metric = MAPMetric() if "map" in metrics else None
 
         results = {
             "model": model.model_name,
             "dataset": f"{self.dataset_name.upper()}_test",
-            "num_images": len(dataset),
+            "num_images": n,
             "metrics": {},
             "per_image_results": [],
             "classes": {},
         }
+        metric_totals = {m: 0.0 for m in metrics if m != "map"}
 
-        # Run inference and compute metrics for each image
-        logger.info("Running evaluation...")
-        metric_totals = {metric: 0.0 for metric in metrics if metric != "map"}
+        logger.info(f"Computing metrics in parallel (workers={os.cpu_count()})...")
 
-        for idx in tqdm(range(len(dataset)), desc="Evaluating"):
-            sample = dataset[idx]
-            image_path = Path(sample["image_path"])
-            ground_truth = sample["annotations"]
+        # Submit all metric tasks upfront; collect in order to keep MAP updates serial
+        ordered_futures: List[Future] = []
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            for sample, predictions in zip(samples, all_predictions):
+                ordered_futures.append(
+                    executor.submit(_compute_image_metrics, sample, predictions, metrics)
+                )
 
-            # Run model prediction
-            try:
-                predictions = model.predict(image_path)
-            except Exception as e:
-                logger.error(f"Error predicting {sample['filename']}: {e}")
-                predictions = []
+            for future in tqdm(ordered_futures, desc="Metrics"):
+                img_result = future.result()
 
-            # Update MAP metric globally (with mapped classes)
-            if map_metric:
-                if map_ignore_class:
-                    mapped_preds = []
-                    for p in predictions:
-                        p_copy = p.copy()
-                        p_copy["class"] = "object"
-                        mapped_preds.append(p_copy)
+                # MAP update must stay serial and in-order (not thread-safe)
+                if map_metric:
+                    preds = img_result["predictions"]
+                    gt = img_result["ground_truth"]
+                    if map_ignore_class:
+                        preds = [{**p, "class": "object"} for p in preds]
+                        gt = [{**g, "class": "object"} for g in gt]
+                    map_metric.update(preds, gt)
 
-                    mapped_gt = []
-                    for g in ground_truth:
-                        g_copy = g.copy()
-                        g_copy["class"] = "object"
-                        mapped_gt.append(g_copy)
+                for metric_name, score in img_result["image_metrics"].items():
+                    if metric_name in metric_totals:
+                        metric_totals[metric_name] += score
 
-                    map_metric.update(mapped_preds, mapped_gt)
-                else:
-                    map_metric.update(predictions, ground_truth)
-
-            # Get image dimensions for metrics that need them
-            try:
-                with Image.open(image_path) as img:
-                    image_width, image_height = img.size
-            except Exception as e:
-                logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
-                image_width, image_height = 1000, 1000  # Default fallback
-
-            w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
-            gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
-            pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
-
-            # Compute standard per-image metrics
-            image_metrics = {}
-            for metric_name in metrics:
-                if metric_name == "map":
-                    continue  # Computed globally
-                elif metric_name == "mean_iou":
-                    score = mean_iou(predictions, ground_truth)
-                elif metric_name == "coverage":
-                    score = coverage(gt_ssu_map, pred_masks)
-                elif metric_name == "overlap":
-                    score = overlap(gt_ssu_map, pred_masks)
-                elif metric_name == "trespass":
-                    score = trespass(gt_ssu_map, pred_masks)
-                elif metric_name == "excess":
-                    score = excess(gt_ssu_map, pred_masks)
-                elif metric_name == "cot_score":
-                    score = cot_score(gt_ssu_map, pred_masks)[0]  # Unpack tuple
-                else:
-                    logger.warning(f"Unknown per-image metric: {metric_name}")
-                    score = 0.0
-
-                if metric_name in metric_totals:
-                    image_metrics[metric_name] = score
-                    metric_totals[metric_name] += score
-
-            # Store per-image results
-            results["per_image_results"].append(
-                {"filename": sample["filename"], "metrics": image_metrics}
-            )
+                results["per_image_results"].append(
+                    {"filename": img_result["filename"], "metrics": img_result["image_metrics"]}
+                )
 
         # Calculate average metrics
         for metric_name in metric_totals:
-            results["metrics"][metric_name] = metric_totals[metric_name] / len(dataset)
+            results["metrics"][metric_name] = metric_totals[metric_name] / n
 
-        # Compute Global mAP
+        # Compute global mAP
         if map_metric:
             logger.info("Computing global mAP...")
             map_scores = map_metric.compute()

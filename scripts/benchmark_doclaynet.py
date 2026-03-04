@@ -67,6 +67,12 @@ def main():
         action="store_true",
         help="If set, compute class-aware mAP (by default mAP ignores class).",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Number of images per GPU inference batch (default: 16).",
+    )
 
     args = parser.parse_args()
 
@@ -107,7 +113,11 @@ def main():
         logger.info(f"{'='*60}")
 
         try:
-            results = runner.run_evaluation(model, map_ignore_class=(not args.map_class_aware))
+            results = runner.run_evaluation(
+                model,
+                map_ignore_class=(not args.map_class_aware),
+                batch_size=args.batch_size,
+            )
             runner.print_summary(results)
 
             safe_name = model_name.lower().replace(" ", "_").replace("-", "_")

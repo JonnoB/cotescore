@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from pathlib import Path
 import logging
 import torch
+from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from transformers import RTDetrV2ForObjectDetection, RTDetrImageProcessor
 from .loader import LayoutModel
@@ -67,6 +68,8 @@ class DoclingLayoutHeron(LayoutModel):
             self.image_processor = RTDetrImageProcessor.from_pretrained(self.model_name)
             self.model = RTDetrV2ForObjectDetection.from_pretrained(self.model_name)
             self.model.to(self.device)
+            if self.device.startswith("cuda"):
+                self.model.half()
             self.model.eval()
             logger.info(f"Model loaded successfully on device: {self.device}")
         except Exception as e:
@@ -109,6 +112,65 @@ class DoclingLayoutHeron(LayoutModel):
         except Exception as e:
             logger.error(f"Error checking prediction for {image_path}: {e}")
             return []
+
+    def predict_batch(
+        self, image_paths: List[Path], batch_size: int = 16
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Run batched inference. Images within each sub-batch are loaded in parallel
+        using threads to overlap disk I/O with GPU computation.
+
+        Args:
+            image_paths: List of paths to input images.
+            batch_size: Number of images per GPU forward pass.
+
+        Returns:
+            List of prediction lists, one per image, preserving input order.
+        """
+        if self.model is None:
+            self.load()
+
+        use_fp16 = (
+            self.device.startswith("cuda")
+            and next(self.model.parameters()).dtype == torch.float16
+        )
+
+        def _load_image(path: Path) -> Image.Image:
+            img = Image.open(path)
+            return img.convert("RGB") if img.mode != "RGB" else img
+
+        all_predictions: List[List[Dict[str, Any]]] = []
+
+        for start in range(0, len(image_paths), batch_size):
+            batch_paths = image_paths[start : start + batch_size]
+
+            with ThreadPoolExecutor(max_workers=len(batch_paths)) as executor:
+                images = list(executor.map(_load_image, batch_paths))
+
+            inputs = self.image_processor(images=images, return_tensors="pt")
+            if use_fp16:
+                inputs = {
+                    k: v.to(self.device, dtype=torch.float16) if v.is_floating_point() else v.to(self.device)
+                    for k, v in inputs.items()
+                }
+            else:
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+
+            # PIL .size is (W, H); post_process expects [H, W]
+            target_sizes = torch.tensor(
+                [img.size[::-1] for img in images], device=self.device
+            )
+            results = self.image_processor.post_process_object_detection(
+                outputs, target_sizes=target_sizes, threshold=self.threshold
+            )
+
+            for result in results:
+                all_predictions.append(self._extract_predictions(result))
+
+        return all_predictions
 
     def _extract_predictions(self, result) -> List[Dict[str, Any]]:
         """Extract predictions from model output."""

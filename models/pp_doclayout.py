@@ -106,6 +106,45 @@ class PPDocLayout(LayoutModel):
 
         return predictions
 
+    def predict_batch(
+        self, image_paths: List[Path], batch_size: int = 16
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Run batched inference using PaddleOCR LayoutDetection's batch API.
+
+        Args:
+            image_paths: List of paths to input images.
+            batch_size: Number of images per PaddleOCR batch call.
+
+        Returns:
+            List of prediction lists, one per image, preserving input order.
+        """
+        if self.model is None:
+            self.load()
+
+        all_predictions: List[List[Dict[str, Any]]] = []
+
+        for start in range(0, len(image_paths), batch_size):
+            batch_paths = image_paths[start : start + batch_size]
+            str_paths = [str(p) for p in batch_paths]
+
+            try:
+                output = self.model.predict(str_paths, batch_size=len(batch_paths))
+            except Exception as e:
+                logger.error(
+                    f"Error running PP-DocLayout batch prediction "
+                    f"({batch_paths[0]}..{batch_paths[-1]}): {e}"
+                )
+                all_predictions.extend([[] for _ in batch_paths])
+                continue
+
+            for res in output:
+                raw = res.json if hasattr(res, "json") else {}
+                boxes = raw.get("res", {}).get("boxes", [])
+                all_predictions.append(self._parse_boxes(boxes))
+
+        return all_predictions
+
     def _parse_boxes(self, boxes: List[Dict]) -> List[Dict[str, Any]]:
         """
         Parse raw PP-DocLayout output boxes into the standard benchmark format.
