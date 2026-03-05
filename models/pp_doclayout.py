@@ -31,7 +31,7 @@ class PPDocLayout(LayoutModel):
 
         Args:
             model_name: PaddleOCR model name (default: PP-DocLayout-L).
-                        Other available variants include 'PP-DocLayout-M' and 'PP-DocLayout-B'.
+                        Other available variants include 'PP-DocLayout-M' and 'PP-DocLayout-S'.
             conf_threshold: Confidence threshold for filtering predictions (default: 0.2).
             device: Inference device – 'cpu' or 'gpu' (default: 'cpu').
                     Note: PaddleOCR uses 'gpu' rather than 'cuda'.

@@ -55,7 +55,7 @@ def main():
         "--models",
         nargs="+",
         default=["yolo", "heron", "ppdoc"],
-        choices=["yolo", "heron", "ppdoc"],
+        choices=["yolo", "heron", "ppdoc", "ppdoc-m", "ppdoc-s"],
         help="Models to benchmark (default: yolo heron ppdoc)",
     )
     parser.add_argument("--device", type=str, default="cuda", help="Device to use (default: cuda)")
@@ -107,6 +107,18 @@ def main():
             ("PPDocLayout", PPDocLayout(device=args.device if args.device else "cpu"))
         )
 
+    if "ppdoc-m" in args.models:
+        from models.pp_doclayout import PPDocLayout
+        models_to_run.append(
+            ("PPDocLayout-M", PPDocLayout(model_name="PP-DocLayout-M", device=args.device if args.device else "cpu"))
+        )
+
+    if "ppdoc-s" in args.models:
+        from models.pp_doclayout import PPDocLayout
+        models_to_run.append(
+            ("PPDocLayout-S", PPDocLayout(model_name="PP-DocLayout-S", device=args.device if args.device else "cpu"))
+        )
+
     for model_name, model in models_to_run:
         logger.info(f"\n{'='*60}")
         logger.info(f"Benchmarking {model_name}...")
@@ -137,12 +149,6 @@ def main():
 
     logger.info(f"\nCombined results saved to: {final_output}")
 
-    print("\n" + "=" * 75)
-    print("COMPARATIVE SUMMARY — DOCLAYNET")
-    print("=" * 75)
-    print(f"{'Metric':<20} | {'YOLO':<12} | {'Heron':<12} | {'PPDocLayout':<12}")
-    print("-" * 75)
-
     metrics = [
         "map",
         "map_50",
@@ -165,26 +171,29 @@ def main():
         "excess": "Excess",
         "cot_score": "COT Score",
     }
+
+    run_models = list(all_results["models"].keys())
+    col_w = 14
+    total_w = 20 + (col_w + 3) * len(run_models)
+
+    print("\n" + "=" * total_w)
+    print("COMPARATIVE SUMMARY — DOCLAYNET")
+    print("=" * total_w)
+    header = f"{'Metric':<20}" + "".join(f" | {m:<{col_w}}" for m in run_models)
+    print(header)
+    print("-" * total_w)
+
     for metric in metrics:
-        yolo_score = all_results["models"].get("DocLayout-YOLO", {}).get(metric, "N/A")
-        heron_score = all_results["models"].get("DoclingLayoutHeron", {}).get(metric, "N/A")
-        ppdoc_score = all_results["models"].get("PPDocLayout", {}).get(metric, "N/A")
-
-        if metric == "cot_score":
-            yolo_str = f"{yolo_score:+.4f}" if isinstance(yolo_score, float) else str(yolo_score)
-            heron_str = (
-                f"{heron_score:+.4f}" if isinstance(heron_score, float) else str(heron_score)
-            )
-            ppdoc_str = (
-                f"{ppdoc_score:+.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
-            )
-        else:
-            yolo_str = f"{yolo_score:.4f}" if isinstance(yolo_score, float) else str(yolo_score)
-            heron_str = f"{heron_score:.4f}" if isinstance(heron_score, float) else str(heron_score)
-            ppdoc_str = f"{ppdoc_score:.4f}" if isinstance(ppdoc_score, float) else str(ppdoc_score)
-
-        print(f"{metric_labels[metric]:<20} | {yolo_str:<12} | {heron_str:<12} | {ppdoc_str:<12}")
-    print("=" * 75)
+        row = f"{metric_labels[metric]:<20}"
+        for m in run_models:
+            score = all_results["models"].get(m, {}).get(metric, "N/A")
+            if metric == "cot_score":
+                score_str = f"{score:+.4f}" if isinstance(score, float) else str(score)
+            else:
+                score_str = f"{score:.4f}" if isinstance(score, float) else str(score)
+            row += f" | {score_str:<{col_w}}"
+        print(row)
+    print("=" * total_w)
 
 
 if __name__ == "__main__":
