@@ -54,8 +54,8 @@ def main():
     parser.add_argument(
         "--models",
         nargs="+",
-        default=["yolo", "heron", "ppdoc"],
-        choices=["yolo", "heron", "ppdoc", "ppdoc-m", "ppdoc-s"],
+        default=["yolo", "heron", "ppdoc-l"],
+        choices=["yolo", "heron", "ppdoc-l", "ppdoc-m", "ppdoc-s"],
         help="Models to benchmark (default: yolo heron ppdoc)",
     )
     parser.add_argument("--device", type=str, default="cuda", help="Device to use (default: cuda)")
@@ -101,10 +101,10 @@ def main():
         from models.docling_heron import DoclingLayoutHeron
         models_to_run.append(("DoclingLayoutHeron", DoclingLayoutHeron(device=args.device)))
 
-    if "ppdoc" in args.models:
+    if "ppdoc-l" in args.models:
         from models.pp_doclayout import PPDocLayout
         models_to_run.append(
-            ("PPDocLayout", PPDocLayout(device=args.device if args.device else "cpu"))
+            ("PPDocLayout-L", PPDocLayout(device=args.device if args.device else "cpu"))
         )
 
     if "ppdoc-m" in args.models:
