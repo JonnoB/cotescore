@@ -7,9 +7,16 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
-import torch
 import numpy as np
 from tqdm import tqdm
+
+# torch is only needed for CUDA synchronization in latency measurement.
+# It is optional so that PaddlePaddle-only benchmarks work without PyTorch.
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 from cot_score.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset
 from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
@@ -138,23 +145,26 @@ class BenchmarkRunner:
         Returns:
             Dictionary with mean and std latency in milliseconds
         """
-        logger.info(f"Measuring latency on {model.device}...")
+        device = getattr(model, "device", "unknown")
+        logger.info(f"Measuring latency on {device}...")
+
+        def _cuda_sync():
+            """Synchronize CUDA if torch is available and model is on GPU."""
+            if TORCH_AVAILABLE and torch.cuda.is_available() and "cuda" in str(device):
+                torch.cuda.synchronize()
 
         # Warmup
         for _ in range(warmup):
             _ = model.predict(sample_image_path)
 
-        # Synchronization for CUDA
-        if torch.cuda.is_available() and "cuda" in str(model.device):
-            torch.cuda.synchronize()
+        _cuda_sync()
 
         # Timing
         latencies = []
         for _ in range(repeats):
             start = time.perf_counter()
             _ = model.predict(sample_image_path)
-            if torch.cuda.is_available() and "cuda" in str(model.device):
-                torch.cuda.synchronize()
+            _cuda_sync()
             end = time.perf_counter()
             latencies.append((end - start) * 1000)  # ms
 
