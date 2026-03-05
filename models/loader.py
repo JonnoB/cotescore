@@ -37,3 +37,21 @@ class LayoutModel:
             List of predicted regions with bounding boxes and labels
         """
         raise NotImplementedError("Subclasses must implement predict()")
+
+    def predict_batch(
+        self, image_paths: List[Path], batch_size: int = 16
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Run inference on a list of images.
+
+        Default implementation processes images one at a time.
+        Subclasses should override this for true batched GPU inference.
+
+        Args:
+            image_paths: List of paths to input images
+            batch_size: Number of images per GPU batch (ignored in fallback)
+
+        Returns:
+            List of prediction lists, one inner list per image, in input order.
+        """
+        return [self.predict(p) for p in image_paths]

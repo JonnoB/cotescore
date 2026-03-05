@@ -21,9 +21,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from benchmarks.runner import BenchmarkRunner
-from models.doclayout_yolo import DocLayoutYOLO
-from models.docling_heron import DoclingLayoutHeron
-from models.pp_doclayout import PPDocLayout
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -67,6 +64,12 @@ def main():
         action="store_true",
         help="If set, compute class-aware mAP (by default mAP ignores class).",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Number of images per GPU inference batch (default: 16).",
+    )
 
     args = parser.parse_args()
 
@@ -89,14 +92,17 @@ def main():
     models_to_run = []
 
     if "yolo" in args.models:
+        from models.doclayout_yolo import DocLayoutYOLO
         models_to_run.append(
             ("DocLayout-YOLO", DocLayoutYOLO(device=args.device if args.device else "cpu"))
         )
 
     if "heron" in args.models:
+        from models.docling_heron import DoclingLayoutHeron
         models_to_run.append(("DoclingLayoutHeron", DoclingLayoutHeron(device=args.device)))
 
     if "ppdoc" in args.models:
+        from models.pp_doclayout import PPDocLayout
         models_to_run.append(
             ("PPDocLayout", PPDocLayout(device=args.device if args.device else "cpu"))
         )
@@ -107,7 +113,11 @@ def main():
         logger.info(f"{'='*60}")
 
         try:
-            results = runner.run_evaluation(model, map_ignore_class=(not args.map_class_aware))
+            results = runner.run_evaluation(
+                model,
+                map_ignore_class=(not args.map_class_aware),
+                batch_size=args.batch_size,
+            )
             runner.print_summary(results)
 
             safe_name = model_name.lower().replace(" ", "_").replace("-", "_")

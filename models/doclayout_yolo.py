@@ -109,6 +109,50 @@ class DocLayoutYOLO(LayoutModel):
 
         return self._extract_predictions(boxes, result)
 
+    def predict_batch(
+        self, image_paths: List[Path], batch_size: int = 16
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Run batched inference using YOLOv10's native list-of-paths API.
+
+        Args:
+            image_paths: List of paths to input images.
+            batch_size: Number of images per GPU call.
+
+        Returns:
+            List of prediction lists, one per image, preserving input order.
+        """
+        if self.model is None:
+            self.load()
+
+        use_half = str(self.device).startswith("cuda")
+        all_predictions: List[List[Dict[str, Any]]] = []
+
+        for start in range(0, len(image_paths), batch_size):
+            batch_paths = image_paths[start : start + batch_size]
+            str_paths = [str(p) for p in batch_paths]
+
+            results = self.model.predict(
+                str_paths,
+                imgsz=self.imgsz,
+                conf=self.conf_threshold,
+                device=self.device,
+                verbose=False,
+                half=use_half,
+            )
+
+            for result in results:
+                if not result or not hasattr(result, "boxes") or result.boxes is None:
+                    all_predictions.append([])
+                    continue
+                boxes = result.boxes
+                if not hasattr(boxes, "xyxy"):
+                    all_predictions.append([])
+                    continue
+                all_predictions.append(self._extract_predictions(boxes, result))
+
+        return all_predictions
+
     def _extract_predictions(self, boxes, result) -> List[Dict[str, Any]]:
         """Extract predictions from YOLO boxes."""
         xyxy = boxes.xyxy.cpu().numpy() if hasattr(boxes.xyxy, "cpu") else boxes.xyxy

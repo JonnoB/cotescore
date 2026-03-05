@@ -54,7 +54,7 @@ benchmarks = [
     "requests>=2.32.4",
     # PP-DocLayout-L — PaddlePaddle itself must be installed separately first:
     # pip install paddlepaddle==3.0.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
-    "paddleocr>=2.9.0",
+    #"paddleocr>=2.9.0",
 ]
 
 models = [
@@ -63,13 +63,15 @@ models = [
     "torchvision>=0.15.0",
 ]
 
-# PP-DocLayout-L (PaddleOCR).
-# PaddlePaddle must be installed separately before paddleocr – see:
-# https://www.paddlepaddle.org.cn/en/install/quick
-# CPU example:
-#   pip install paddlepaddle==3.0.0 \
-#       -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
-paddle = [
+paddle-benchmark = [
+    # benchmark deps only, no torch
+    "pycocotools>=2.0.0",
+    "datasets>=2.0.0",
+    "huggingface-hub>=0.16.0",
+    "evaluate>=0.4.0",
+    "tqdm>=4.65.0",
+    "marimo>=0.8.22",
+    "requests>=2.32.4",
     "paddleocr>=2.9.0",
 ]
 

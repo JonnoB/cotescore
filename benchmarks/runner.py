@@ -4,10 +4,19 @@ from typing import Dict, List, Any, Tuple
 from pathlib import Path
 import json
 import logging
+import os
 import time
-import torch
+from concurrent.futures import ThreadPoolExecutor, Future
 import numpy as np
 from tqdm import tqdm
+
+# torch is only needed for CUDA synchronization in latency measurement.
+# It is optional so that PaddlePaddle-only benchmarks work without PyTorch.
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 from cot_score.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset
 from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
@@ -27,6 +36,59 @@ logger = logging.getLogger(__name__)
 
 EVAL_MAX_DIM = 2000
 
+
+def _compute_image_metrics(
+    sample: dict,
+    predictions: List[Dict],
+    metrics: List[str],
+) -> dict:
+    """
+    Compute all per-image metrics. Pure numpy — thread-safe.
+
+    Returns dict with keys: filename, predictions, ground_truth, image_metrics.
+    """
+    image_path = Path(sample["image_path"])
+    ground_truth = sample["annotations"]
+
+    try:
+        with Image.open(image_path) as img:
+            image_width, image_height = img.size
+    except Exception as e:
+        logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
+        image_width, image_height = 1000, 1000
+
+    w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
+    gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
+    pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
+
+    image_metrics = {}
+    for metric_name in metrics:
+        if metric_name == "map":
+            continue
+        elif metric_name == "mean_iou":
+            score = mean_iou(predictions, ground_truth)
+        elif metric_name == "coverage":
+            score = coverage(gt_ssu_map, pred_masks)
+        elif metric_name == "overlap":
+            score = overlap(gt_ssu_map, pred_masks)
+        elif metric_name == "trespass":
+            score = trespass(gt_ssu_map, pred_masks)
+        elif metric_name == "excess":
+            score = excess(gt_ssu_map, pred_masks)
+        elif metric_name == "cot_score":
+            score = cot_score(gt_ssu_map, pred_masks)[0]
+        else:
+            logger.warning(f"Unknown per-image metric: {metric_name}")
+            score = 0.0
+
+        image_metrics[metric_name] = score
+
+    return {
+        "filename": sample["filename"],
+        "predictions": predictions,
+        "ground_truth": ground_truth,
+        "image_metrics": image_metrics,
+    }
 
 
 class BenchmarkRunner:
@@ -66,6 +128,7 @@ class BenchmarkRunner:
         self.dataset_name = dataset_name.lower()
         self.groundtruth_path = Path(groundtruth_path) if groundtruth_path else None
         self.split = split
+        self._dataset = None  # cached dataset, loaded once across model runs
 
     def measure_latency(
         self, model, sample_image_path: Path, warmup: int = 10, repeats: int = 50
@@ -82,23 +145,26 @@ class BenchmarkRunner:
         Returns:
             Dictionary with mean and std latency in milliseconds
         """
-        logger.info(f"Measuring latency on {model.device}...")
+        device = getattr(model, "device", "unknown")
+        logger.info(f"Measuring latency on {device}...")
+
+        def _cuda_sync():
+            """Synchronize CUDA if torch is available and model is on GPU."""
+            if TORCH_AVAILABLE and torch.cuda.is_available() and "cuda" in str(device):
+                torch.cuda.synchronize()
 
         # Warmup
         for _ in range(warmup):
             _ = model.predict(sample_image_path)
 
-        # Synchronization for CUDA
-        if torch.cuda.is_available() and "cuda" in str(model.device):
-            torch.cuda.synchronize()
+        _cuda_sync()
 
         # Timing
         latencies = []
         for _ in range(repeats):
             start = time.perf_counter()
             _ = model.predict(sample_image_path)
-            if torch.cuda.is_available() and "cuda" in str(model.device):
-                torch.cuda.synchronize()
+            _cuda_sync()
             end = time.perf_counter()
             latencies.append((end - start) * 1000)  # ms
 
@@ -114,13 +180,19 @@ class BenchmarkRunner:
         metrics: List[str] = None,
         *,
         map_ignore_class: bool = True,
+        batch_size: int = 16,
     ) -> Dict[str, Any]:
         """
         Run evaluation for a model using specified metrics.
 
+        Inference is batched (predict_batch) and per-image metric computation
+        runs in parallel on all CPU cores via ThreadPoolExecutor.
+
         Args:
             model: Model instance to evaluate
-            metrics: List of metric names (default: ['mean_iou', 'coverage', 'overlap', 'trespass', 'cot_score', 'map'])
+            metrics: List of metric names (default: all)
+            map_ignore_class: If True, collapse all classes to 'object' for mAP
+            batch_size: Number of images per GPU inference batch (default: 16)
 
         Returns:
             Dictionary containing evaluation results
@@ -128,129 +200,111 @@ class BenchmarkRunner:
         if metrics is None:
             metrics = ["mean_iou", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
 
-        logger.info(f"Loading {self.dataset_name.upper()} dataset from {self.dataset_path}")
+        if self._dataset is None:
+            logger.info(f"Loading {self.dataset_name.upper()} dataset from {self.dataset_path}")
 
-        if self.dataset_name == "ncse":
-            dataset = NCSEDataset(
-                self.dataset_path,
-                split="test",
-                csv_filename=self.csv_filename,
-                images_subdir=self.images_subdir,
-                image_ext=self.image_ext,
-            )
-        elif self.dataset_name == "doclaynet":
-            dataset = DocLayNetDataset(self.dataset_path, split=self.split)
-        elif self.dataset_name == "hnla2013":
-            if self.groundtruth_path is None:
-                raise ValueError("groundtruth_path must be provided for hnla2013 dataset")
-            dataset = HNLA2013Dataset(
-                images_path=self.dataset_path,
-                groundtruth_path=self.groundtruth_path,
-                image_ext=self.image_ext,
-            )
-        else:
-            raise ValueError(f"Unknown dataset_name: {self.dataset_name}")
+            if self.dataset_name == "ncse":
+                self._dataset = NCSEDataset(
+                    self.dataset_path,
+                    split="test",
+                    csv_filename=self.csv_filename,
+                    images_subdir=self.images_subdir,
+                    image_ext=self.image_ext,
+                )
+            elif self.dataset_name == "doclaynet":
+                self._dataset = DocLayNetDataset(self.dataset_path, split=self.split)
+            elif self.dataset_name == "hnla2013":
+                if self.groundtruth_path is None:
+                    raise ValueError("groundtruth_path must be provided for hnla2013 dataset")
+                self._dataset = HNLA2013Dataset(
+                    images_path=self.dataset_path,
+                    groundtruth_path=self.groundtruth_path,
+                    image_ext=self.image_ext,
+                )
+            else:
+                raise ValueError(f"Unknown dataset_name: {self.dataset_name}")
 
-        dataset.load()
-        logger.info(f"Dataset loaded: {len(dataset)} images")
+            self._dataset.load()
+
+        dataset = self._dataset
+        n = len(dataset)
+        logger.info(f"Dataset loaded: {n} images")
 
         if model.model is None:
             model.load()
 
-        # Initialize MAP metric if requested
+        # --- Phase 1: Collect all samples (fast — no disk I/O) ---
+        samples = [dataset[i] for i in range(n)]
+        all_image_paths = [Path(s["image_path"]) for s in samples]
+
+        # --- Phases 2+3: Pipelined inference and metrics ---
+        # Metric tasks for batch K are submitted immediately after inference completes,
+        # so CPU metric computation overlaps with GPU inference for batch K+1.
         map_metric = MAPMetric() if "map" in metrics else None
 
         results = {
             "model": model.model_name,
             "dataset": f"{self.dataset_name.upper()}_test",
-            "num_images": len(dataset),
+            "num_images": n,
             "metrics": {},
             "per_image_results": [],
             "classes": {},
         }
+        metric_totals = {m: 0.0 for m in metrics if m != "map"}
 
-        # Run inference and compute metrics for each image
-        logger.info("Running evaluation...")
-        metric_totals = {metric: 0.0 for metric in metrics if metric != "map"}
+        ordered_futures: List[Future] = []
+        logger.info(f"Running pipelined inference + metrics (batch_size={batch_size}, workers={os.cpu_count()})...")
 
-        for idx in tqdm(range(len(dataset)), desc="Evaluating"):
-            sample = dataset[idx]
-            image_path = Path(sample["image_path"])
-            ground_truth = sample["annotations"]
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            for start in tqdm(range(0, n, batch_size), desc="Inference"):
+                chunk_paths   = all_image_paths[start : start + batch_size]
+                chunk_samples = samples[start : start + batch_size]
 
-            # Run model prediction
-            try:
-                predictions = model.predict(image_path)
-            except Exception as e:
-                logger.error(f"Error predicting {sample['filename']}: {e}")
-                predictions = []
+                # GPU inference for this chunk
+                try:
+                    chunk_preds = model.predict_batch(chunk_paths, batch_size=len(chunk_paths))
+                except Exception as e:
+                    logger.error(f"predict_batch failed on chunk {start}: {e}")
+                    chunk_preds = []
+                    for path in chunk_paths:
+                        try:
+                            chunk_preds.append(model.predict(path))
+                        except Exception as ex:
+                            logger.error(f"Error predicting {path}: {ex}")
+                            chunk_preds.append([])
 
-            # Update MAP metric globally (with mapped classes)
-            if map_metric:
-                if map_ignore_class:
-                    mapped_preds = []
-                    for p in predictions:
-                        p_copy = p.copy()
-                        p_copy["class"] = "object"
-                        mapped_preds.append(p_copy)
+                # Immediately submit metrics to CPU threads — runs while GPU does next chunk
+                for sample, preds in zip(chunk_samples, chunk_preds):
+                    ordered_futures.append(
+                        executor.submit(_compute_image_metrics, sample, preds, metrics)
+                    )
 
-                    mapped_gt = []
-                    for g in ground_truth:
-                        g_copy = g.copy()
-                        g_copy["class"] = "object"
-                        mapped_gt.append(g_copy)
+            # Collect in submission order to keep MAP updates serial
+            for future in tqdm(ordered_futures, desc="Metrics"):
+                img_result = future.result()
 
-                    map_metric.update(mapped_preds, mapped_gt)
-                else:
-                    map_metric.update(predictions, ground_truth)
+                # MAP update must stay serial and in-order (not thread-safe)
+                if map_metric:
+                    preds = img_result["predictions"]
+                    gt    = img_result["ground_truth"]
+                    if map_ignore_class:
+                        preds = [{**p, "class": "object"} for p in preds]
+                        gt    = [{**g, "class": "object"} for g in gt]
+                    map_metric.update(preds, gt)
 
-            # Get image dimensions for metrics that need them
-            try:
-                with Image.open(image_path) as img:
-                    image_width, image_height = img.size
-            except Exception as e:
-                logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
-                image_width, image_height = 1000, 1000  # Default fallback
+                for metric_name, score in img_result["image_metrics"].items():
+                    if metric_name in metric_totals:
+                        metric_totals[metric_name] += score
 
-            w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
-            gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
-            pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
-
-            # Compute standard per-image metrics
-            image_metrics = {}
-            for metric_name in metrics:
-                if metric_name == "map":
-                    continue  # Computed globally
-                elif metric_name == "mean_iou":
-                    score = mean_iou(predictions, ground_truth)
-                elif metric_name == "coverage":
-                    score = coverage(gt_ssu_map, pred_masks)
-                elif metric_name == "overlap":
-                    score = overlap(gt_ssu_map, pred_masks)
-                elif metric_name == "trespass":
-                    score = trespass(gt_ssu_map, pred_masks)
-                elif metric_name == "excess":
-                    score = excess(gt_ssu_map, pred_masks)
-                elif metric_name == "cot_score":
-                    score = cot_score(gt_ssu_map, pred_masks)[0]  # Unpack tuple
-                else:
-                    logger.warning(f"Unknown per-image metric: {metric_name}")
-                    score = 0.0
-
-                if metric_name in metric_totals:
-                    image_metrics[metric_name] = score
-                    metric_totals[metric_name] += score
-
-            # Store per-image results
-            results["per_image_results"].append(
-                {"filename": sample["filename"], "metrics": image_metrics}
-            )
+                results["per_image_results"].append(
+                    {"filename": img_result["filename"], "metrics": img_result["image_metrics"]}
+                )
 
         # Calculate average metrics
         for metric_name in metric_totals:
-            results["metrics"][metric_name] = metric_totals[metric_name] / len(dataset)
+            results["metrics"][metric_name] = metric_totals[metric_name] / n
 
-        # Compute Global mAP
+        # Compute global mAP
         if map_metric:
             logger.info("Computing global mAP...")
             map_scores = map_metric.compute()

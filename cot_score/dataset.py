@@ -326,7 +326,7 @@ class DocLayNetDataset:
             logger.info(f"Loading DocLayNet from {self.dataset_path} ({len(local_parquet)} parquet files)...")
             ds = datasets.load_dataset(
                 "parquet",
-                data_files=str(self.dataset_path / "*.parquet"),
+                data_files=[str(p) for p in local_parquet],
                 split="train",
             )
         else:
