@@ -1225,7 +1225,6 @@ benchmarks = [
     { name = "marimo", version = "0.8.22", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "marimo", version = "0.17.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "marimo", version = "0.18.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "paddleocr" },
     { name = "pycocotools", version = "2.0.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pycocotools", version = "2.0.11", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "requests", version = "2.32.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -1269,8 +1268,20 @@ models = [
     { name = "transformers", version = "4.46.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "transformers", version = "4.57.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
-paddle = [
+paddle-benchmark = [
+    { name = "datasets", version = "3.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "datasets", version = "4.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "evaluate" },
+    { name = "huggingface-hub" },
+    { name = "marimo", version = "0.8.22", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "marimo", version = "0.17.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "marimo", version = "0.18.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "paddleocr" },
+    { name = "pycocotools", version = "2.0.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pycocotools", version = "2.0.11", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "requests", version = "2.32.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "requests", version = "2.32.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -1278,32 +1289,38 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "datasets", specifier = ">=2.0.0" },
     { name = "datasets", marker = "extra == 'benchmarks'", specifier = ">=2.0.0" },
+    { name = "datasets", marker = "extra == 'paddle-benchmark'", specifier = ">=2.0.0" },
     { name = "evaluate", marker = "extra == 'benchmarks'", specifier = ">=0.4.0" },
+    { name = "evaluate", marker = "extra == 'paddle-benchmark'", specifier = ">=0.4.0" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "huggingface-hub", marker = "extra == 'benchmarks'", specifier = ">=0.16.0" },
+    { name = "huggingface-hub", marker = "extra == 'paddle-benchmark'", specifier = ">=0.16.0" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "marimo", marker = "extra == 'benchmarks'", specifier = ">=0.8.22" },
+    { name = "marimo", marker = "extra == 'paddle-benchmark'", specifier = ">=0.8.22" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.21.0,<2.0" },
-    { name = "paddleocr", marker = "extra == 'benchmarks'", specifier = ">=2.9.0" },
-    { name = "paddleocr", marker = "extra == 'paddle'", specifier = ">=2.9.0" },
+    { name = "paddleocr", marker = "extra == 'paddle-benchmark'", specifier = ">=2.9.0" },
     { name = "pandas", specifier = ">=1.3.0" },
     { name = "pillow", specifier = ">=9.0.0" },
     { name = "pycocotools", marker = "extra == 'benchmarks'", specifier = ">=2.0.0" },
+    { name = "pycocotools", marker = "extra == 'paddle-benchmark'", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "requests", marker = "extra == 'benchmarks'", specifier = ">=2.32.4" },
+    { name = "requests", marker = "extra == 'paddle-benchmark'", specifier = ">=2.32.4" },
     { name = "torch", marker = "extra == 'benchmarks'", specifier = ">=2.5.1" },
     { name = "torch", marker = "extra == 'models'", specifier = ">=2.0.0" },
     { name = "torchmetrics", marker = "extra == 'benchmarks'", specifier = ">=1.0.0" },
     { name = "torchvision", marker = "extra == 'benchmarks'", specifier = ">=0.20.1" },
     { name = "torchvision", marker = "extra == 'models'", specifier = ">=0.15.0" },
     { name = "tqdm", marker = "extra == 'benchmarks'", specifier = ">=4.65.0" },
+    { name = "tqdm", marker = "extra == 'paddle-benchmark'", specifier = ">=4.65.0" },
     { name = "transformers", marker = "extra == 'benchmarks'", specifier = ">=4.46.3" },
     { name = "transformers", marker = "extra == 'models'", specifier = ">=4.30.0" },
 ]
-provides-extras = ["dev", "benchmarks", "models", "paddle"]
+provides-extras = ["dev", "benchmarks", "models", "paddle-benchmark"]
 
 [[package]]
 name = "coverage"

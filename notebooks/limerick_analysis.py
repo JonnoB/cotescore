@@ -17,16 +17,17 @@ def _():
     from plotnine import aes, geom_hline, geom_line, ggplot, labs, theme, theme_minimal, geom_vline
 
     # Import cote_score metrics for evaluation
-    from cot_score.metrics import mean_iou, iou, overlap, cote_score, cdd
-
-    # Import plot utilities for GT visualization
-    from fakenewslib.plot_utils import plot_page_and_annotations
+    from cot_score.metrics import mean_iou, iou, overlap, cote_score
+    from cot_score.visualisation import compute_cote_masks, visualize_cote_states
+    from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 
     figure_path = Path("data/figures")
     return (
         Path,
         aes,
-        cdd,
+        boxes_to_gt_ssu_map,
+        boxes_to_pred_masks,
+        compute_cote_masks,
         cote_score,
         figure_path,
         geom_hline,
@@ -39,10 +40,10 @@ def _():
         mean_iou,
         np,
         pd,
-        plot_page_and_annotations,
         plt,
         theme,
         theme_minimal,
+        visualize_cote_states,
     )
 
 
@@ -108,66 +109,6 @@ def _(iou):
                 )
         return ssu_boxes
 
-    def gt_to_bboxes(gt):
-        """Convert simplified ground truth to old bboxes format for plot_page_and_annotations."""
-        blocks = {}
-        for story_id, story in gt["stories"].items():
-            # Group consecutive lines by SSU to form pseudo-paragraphs
-            groups = []
-            for line in story["lines"]:
-                if not groups or line["ssu"] != groups[-1][0]:
-                    groups.append((line["ssu"], [line]))
-                else:
-                    groups[-1][1].append(line)
-
-            paragraphs = []
-            line_counter = 0
-            for ssu, lines in groups:
-                x_min = min(l["bbox"][0] for l in lines)
-                y_min = min(l["bbox"][1] for l in lines)
-                x_max = max(l["bbox"][0] + l["bbox"][2] for l in lines)
-                y_max = max(l["bbox"][1] + l["bbox"][3] for l in lines)
-
-                chars = []
-                for i, line in enumerate(lines):
-                    for char in line["characters"]:
-                        chars.append({**char, "line": line_counter + i})
-
-                paragraphs.append(
-                    {
-                        "bbox": [x_min, y_min, x_max - x_min, y_max - y_min],
-                        "text": "\n".join(l["text"] for l in lines),
-                        "style": "body",
-                        "ssu": ssu,
-                        "characters": chars,
-                        "lines": [
-                            {
-                                "bbox": l["bbox"],
-                                "text": l["text"],
-                                "line_index": line_counter + i,
-                                "num_characters": len(l["characters"]),
-                            }
-                            for i, l in enumerate(lines)
-                        ],
-                    }
-                )
-                line_counter += len(lines)
-
-            all_bboxes = [p["bbox"] for p in paragraphs]
-            bx_min = min(b[0] for b in all_bboxes)
-            by_min = min(b[1] for b in all_bboxes)
-            bx_max = max(b[0] + b[2] for b in all_bboxes)
-            by_max = max(b[1] + b[3] for b in all_bboxes)
-
-            blocks[story_id] = {
-                "bbox": [bx_min, by_min, bx_max - bx_min, by_max - by_min],
-                "block_group": story_id,
-                "type": "normal",
-                "paragraphs": paragraphs,
-            }
-
-        return {"page": gt["page"], "blocks": blocks}
-
     def calculate_detection_metrics(pred_boxes, gt_boxes, iou_threshold=0.5):
         """Calculate TP/FP/FN using IoU-based greedy matching."""
         if not pred_boxes or not gt_boxes:
@@ -207,12 +148,7 @@ def _(iou):
 
         return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
 
-    return (
-        calculate_detection_metrics,
-        extract_line_boxes,
-        extract_ssu_boxes,
-        gt_to_bboxes,
-    )
+    return calculate_detection_metrics, extract_line_boxes, extract_ssu_boxes
 
 
 @app.cell
@@ -234,28 +170,49 @@ def _(mo):
 
 
 @app.cell
-def _(
-    figure_path,
-    ground_truth,
-    gt_to_bboxes,
-    image_array,
-    plot_page_and_annotations,
-    plt,
-):
-    _bboxes_compat = gt_to_bboxes(ground_truth)
+def _(figure_path, ground_truth, image_array, np, plt):
+    """Visualize SSU-level bounding boxes colored by SSU id."""
+    import matplotlib.patches as _patches
+    import matplotlib.cm as _cm
 
-    _fig_para = plot_page_and_annotations(
-        image_array,
-        _bboxes_compat,
-        level="paragraph",
-        color_by="ssu",
-        show_labels=False,
-        figsize=(12, 6.2),
-        legend_position="bottom",
-        legend_index_base=1,
-        dpi=300,
-    )
+    # Collect all (ssu, bbox) pairs across all stories
+    _ssu_items = []
+    for _story in ground_truth["stories"].values():
+        _groups = {}
+        for _line in _story["lines"]:
+            _ssu = _line["ssu"]
+            _groups.setdefault(_ssu, []).append(_line["bbox"])
+        for _ssu in sorted(_groups):
+            _bboxes = _groups[_ssu]
+            _x = min(b[0] for b in _bboxes)
+            _y = min(b[1] for b in _bboxes)
+            _x2 = max(b[0] + b[2] for b in _bboxes)
+            _y2 = max(b[1] + b[3] for b in _bboxes)
+            _ssu_items.append((_ssu, _x, _y, _x2 - _x, _y2 - _y))
+
+    _all_ssus = sorted(set(s for s, *_ in _ssu_items))
+    _colors = ["red", "blue", "green"]
+    _ssu_to_color = {ssu: _colors[i % len(_colors)] for i, ssu in enumerate(_all_ssus)}
+
+    _fig_ssu, _ax_ssu = plt.subplots(figsize=(12, 6.2), dpi=300)
+    _ax_ssu.imshow(image_array, cmap="gray", vmin=0, vmax=255)
+    _ax_ssu.axis("off")
+
+    _legend_patches = []
+    for _ssu, _x, _y, _w, _h in _ssu_items:
+        _color = _ssu_to_color[_ssu]
+        _ax_ssu.add_patch(_patches.Rectangle(
+            (_x, _y), _w, _h,
+            linewidth=2, edgecolor=_color, facecolor="none", alpha=0.8, linestyle="--",
+        ))
+
+    for _ssu in _all_ssus:
+        _legend_patches.append(_patches.Patch(color=_ssu_to_color[_ssu], label=f"SSU {_ssu + 1}"))
+
+    _fig_ssu.legend(handles=_legend_patches, loc="lower center", ncol=len(_legend_patches),
+                    fontsize=15, framealpha=0.9)
     plt.title("Structural Semantic Units", fontsize=25)
+    plt.tight_layout()
     plt.savefig(figure_path / "example_ssu.png", bbox_inches="tight", pad_inches=0)
     plt.show()
     return
@@ -311,20 +268,37 @@ def _(ground_truth, image_array, np, plt):
 
 
 @app.cell
-def _(ground_truth, gt_to_bboxes, image_array, plot_page_and_annotations, plt):
-    """Visualize character-level bounding boxes."""
-    _bboxes_compat = gt_to_bboxes(ground_truth)
+def _(ground_truth, image_array, np, plt):
+    """Visualize character-level bounding boxes colored by line index."""
+    import matplotlib.patches as _patches
+    import matplotlib.cm as _cm
 
-    _fig_char = plot_page_and_annotations(
-        image_array,
-        _bboxes_compat,
-        level="character",
-        color_by="line",
-        show_labels=False,
-        figsize=(12, 10),
-        dpi=100,
-    )
+    # Collect all characters with their global line index
+    _char_items = []  # (line_idx, x, y, w, h)
+    _line_idx = 0
+    for _story in ground_truth["stories"].values():
+        for _line in _story["lines"]:
+            for _char in _line["characters"]:
+                _b = _char["bbox"]
+                _char_items.append((_line_idx, _b[0], _b[1], _b[2], _b[3]))
+            _line_idx += 1
+
+    _n_lines = _line_idx
+    _colors = _cm.tab20(np.linspace(0, 1, max(_n_lines, 1)))
+
+    _fig_char, _ax_char = plt.subplots(figsize=(12, 10), dpi=100)
+    _ax_char.imshow(image_array, cmap="gray", vmin=0, vmax=255)
+    _ax_char.axis("off")
+
+    for _li, _x, _y, _w, _h in _char_items:
+        _color = _colors[_li % len(_colors)]
+        _ax_char.add_patch(_patches.Rectangle(
+            (_x, _y), _w, _h,
+            linewidth=0.5, edgecolor=_color, facecolor="none", alpha=0.7,
+        ))
+
     plt.title("Character-Level Bounding Boxes (colored by line)")
+    plt.tight_layout()
     return
 
 
@@ -352,7 +326,7 @@ def _(mo):
 def _(extract_ssu_boxes, ground_truth):
     pred_boxes = extract_ssu_boxes(ground_truth)
     pred_boxes[0]["x"] = 83.33333333333334
-    pred_boxes[0]["y"] = 450
+    pred_boxes[0]["y"] = 460
     pred_boxes[0]["width"] = 750
     pred_boxes[0]["height"] = 200
 
@@ -363,6 +337,8 @@ def _(extract_ssu_boxes, ground_truth):
 
 @app.cell
 def _(
+    boxes_to_gt_ssu_map,
+    boxes_to_pred_masks,
     calculate_detection_metrics,
     cote_score,
     extract_line_boxes,
@@ -383,15 +359,19 @@ def _(
     img_w = int(ground_truth["page"]["width"])
     img_h = int(ground_truth["page"]["height"])
 
+    # Convert GT boxes to SSU map (required by new cote_score API)
+    _gt_tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
+    _gt_ssu_map = boxes_to_gt_ssu_map(_gt_tagged, img_w, img_h)
+
     # Scenario 1: GT=Line, Pred=Para (paragraph predictions vs line ground truth)
     m1 = calculate_detection_metrics(para_boxes, line_boxes)
     mean_iou_1 = mean_iou(para_boxes, line_boxes)
-    coverage_1, _, _, _, _ = cote_score(para_boxes, gt_boxes, img_w, img_h)
+    coverage_1, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(para_boxes, img_w, img_h))
 
     # Scenario 2: GT=Para, Pred=Line (line predictions vs paragraph ground truth)
     m2 = calculate_detection_metrics(line_boxes, para_boxes)
     mean_iou_2 = mean_iou(line_boxes, para_boxes)
-    coverage_2, _, _, _, _ = cote_score(line_boxes, gt_boxes, img_w, img_h)
+    coverage_2, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(line_boxes, img_w, img_h))
 
     # Build comparison DataFrame
     comparison_df = pd.DataFrame(
@@ -464,228 +444,9 @@ def _(mo):
 
 
 @app.cell
-def _(np):
-    """Helper functions for COTe mask computation."""
-    from typing import List, Dict, Tuple, Optional
-
-    def create_mask(
-        boxes: List[Dict], image_shape: Tuple[int, int], binary: bool = False
-    ) -> np.ndarray:
-        """
-        Create a 2D mask from a list of bounding boxes.
-
-        Args:
-            boxes: List of dicts with 'x', 'y', 'width', 'height'.
-            image_shape: Tuple of (height, width).
-            binary: If True, returns binary mask. If False, returns count mask.
-
-        Returns:
-            np.ndarray of shape (height, width) with int32 dtype.
-        """
-        height, width = image_shape
-        mask = np.zeros((height, width), dtype=np.int32)
-
-        for box in boxes:
-            x1 = max(0, int(round(box["x"])))
-            y1 = max(0, int(round(box["y"])))
-            x2 = min(width, int(round(box["x"] + box["width"])))
-            y2 = min(height, int(round(box["y"] + box["height"])))
-
-            if x2 > x1 and y2 > y1:
-                mask[y1:y2, x1:x2] += 1
-
-        if binary:
-            return (mask > 0).astype(np.int32)
-        return mask
-
-    def get_intersection_area(box1: Dict, box2: Dict) -> float:
-        """Calculate intersection area between two boxes."""
-        x1 = max(box1["x"], box2["x"])
-        y1 = max(box1["y"], box2["y"])
-        x2 = min(box1["x"] + box1["width"], box2["x"] + box2["width"])
-        y2 = min(box1["y"] + box1["height"], box2["y"] + box2["height"])
-
-        if x2 > x1 and y2 > y1:
-            return (x2 - x1) * (y2 - y1)
-        return 0.0
-
-    return Dict, List, Optional, Tuple, create_mask, get_intersection_area
-
-
-@app.cell
-def _(Dict, List, Tuple, create_mask, get_intersection_area, np):
-    """COTe mask computation function."""
-
-    def compute_cote_masks(
-        predicted_boxes: List[Dict],
-        ground_truth_boxes: List[Dict],
-        image_shape: Tuple[int, int],
-    ) -> Dict[str, np.ndarray]:
-        """
-        Compute pixel-level masks for COTe visualization.
-
-        Args:
-            predicted_boxes: List of prediction dicts with 'x', 'y', 'width', 'height'.
-            ground_truth_boxes: List of GT dicts with 'x', 'y', 'width', 'height'.
-            image_shape: Tuple of (height, width).
-
-        Returns:
-            Dict with keys: 'coverage', 'overlap', 'trespass', 'overlap_trespass', 'excess'
-            Each value is a binary mask (np.ndarray).
-        """
-        height, width = image_shape
-
-        # Base masks
-        M_s = create_mask(ground_truth_boxes, image_shape, binary=True)
-        M_p = create_mask(predicted_boxes, image_shape, binary=False)
-        M_p_binary = (M_p > 0).astype(np.int32)
-
-        # Assign each prediction to its owner GT (max intersection area)
-        pred_to_gt = {}
-        for pred_idx, pred in enumerate(predicted_boxes):
-            best_gt_idx = -1
-            max_intersection = 0.0
-            for gt_idx, gt in enumerate(ground_truth_boxes):
-                inter_area = get_intersection_area(pred, gt)
-                if inter_area > max_intersection:
-                    max_intersection = inter_area
-                    best_gt_idx = gt_idx
-            pred_to_gt[pred_idx] = best_gt_idx
-
-        # Create per-GT masks
-        gt_masks = [create_mask([gt], image_shape, binary=True) for gt in ground_truth_boxes]
-
-        # Compute trespass mask: for each GT, find pixels covered by predictions NOT assigned to it
-        trespass_mask = np.zeros(image_shape, dtype=np.int32)
-        for gt_idx, gt_mask in enumerate(gt_masks):
-            # Find predictions NOT assigned to this GT
-            other_preds = [
-                predicted_boxes[p] for p, g in pred_to_gt.items() if g != gt_idx and g != -1
-            ]
-            if other_preds:
-                other_pred_mask = create_mask(other_preds, image_shape, binary=True)
-                # Trespass on this GT = pixels in this GT covered by predictions for other GTs
-                trespass_mask |= gt_mask & other_pred_mask
-
-        # Compute mutually exclusive states
-        in_gt = M_s > 0
-        single = M_p == 1
-        multi = M_p > 1
-        has_trespass = trespass_mask > 0
-
-        masks = {
-            "coverage": (in_gt & single & ~has_trespass).astype(np.int32),
-            "overlap": (in_gt & multi & ~has_trespass).astype(np.int32),
-            "trespass": (in_gt & single & has_trespass).astype(np.int32),
-            "overlap_trespass": (in_gt & multi & has_trespass).astype(np.int32),
-            "excess": (~in_gt & (M_p > 0)).astype(np.int32),
-        }
-
-        return masks
-
-    return (compute_cote_masks,)
-
-
-@app.cell
-def _(Dict, Optional, np, plt):
-    """COTe visualization function."""
-    import matplotlib.patches as mpatches
-
-    # Color palette (RGBA)
-    COTE_COLORS = {
-        "coverage": (0.2, 0.7, 0.3, 0.5),  # Green (good)
-        "overlap": (1.0, 0.8, 0.0, 0.5),  # Gold/Amber (warning)
-        "trespass": (0.9, 0.2, 0.2, 0.6),  # Red (bad)
-        "overlap_trespass": (0.7, 0.0, 0.5, 0.6),  # Purple (severe)
-        "excess": (0.3, 0.5, 0.9, 0.4),  # Blue (outside scope)
-    }
-
-    COTE_LABELS = {
-        "coverage": "Coverage",
-        "overlap": "Overlap",
-        "trespass": "Trespass",
-        "overlap_trespass": "Overlap + Trespass",
-        "excess": "Excess",
-    }
-
-    def visualize_cote_states(
-        image: np.ndarray,
-        masks: Dict[str, np.ndarray],
-        figsize: tuple = (14, 10),
-        dpi: int = 300,
-        output_path: Optional[str] = None,
-    ):
-        """
-        Render COTe pixel state masks as colored overlays on image.
-
-        Args:
-            image: Grayscale or RGB image array.
-            masks: Dict of binary masks from compute_cote_masks().
-            figsize: Figure size tuple.
-            dpi: Figure DPI.
-            output_path: Optional path to save figure.
-
-        Returns:
-            matplotlib Figure object.
-        """
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-
-        # Show base image
-        if len(image.shape) == 2:
-            ax.imshow(image, cmap="gray", vmin=0, vmax=255)
-        else:
-            ax.imshow(image)
-
-        # Overlay each state
-        legend_patches = []
-        for state, color in COTE_COLORS.items():
-            if state in masks:
-                mask = masks[state]
-                pixel_count = np.sum(mask)
-                if pixel_count > 0:
-                    # Create RGBA overlay
-                    rgba = np.zeros((*mask.shape, 4), dtype=np.float32)
-                    rgba[mask > 0] = color
-                    ax.imshow(rgba)
-
-                    # Add to legend
-                    patch = mpatches.Patch(
-                        color=color[:3], alpha=color[3], label=f"{COTE_LABELS[state]}"
-                    )
-                    legend_patches.append(patch)
-        """
-        ax.legend(
-            handles=legend_patches,
-            loc='upper left',
-            bbox_to_anchor=(1.02, 1),
-            fontsize=15,
-            framealpha=0.95
-        )
-        """
-
-        ax.set_title("Example of the COTe components", fontsize=25)
-        ax.axis("off")
-
-        fig.legend(
-            handles=legend_patches,
-            loc="lower center",
-            ncol=6,  # tune
-            framealpha=0.9,
-            fontsize=15,
-        )
-        plt.tight_layout()
-
-        if output_path:
-            fig.savefig(output_path, bbox_inches="tight", dpi=dpi, facecolor="white")
-            print(f"Saved to: {output_path}")
-
-        return fig
-
-    return (visualize_cote_states,)
-
-
-@app.cell
 def _(
+    boxes_to_gt_ssu_map,
+    boxes_to_pred_masks,
     compute_cote_masks,
     extract_ssu_boxes,
     figure_path,
@@ -698,12 +459,14 @@ def _(
     # Extract ground truth boxes at SSU level
     gt_boxes = extract_ssu_boxes(ground_truth)
 
-    # Sample predictions - modify these to demonstrate different states
-    # These are placeholder values - adjust coordinates based on actual GT positions
-    sample_predictions = pred_boxes
+    # Rasterize GT boxes to an SSU id map and pred boxes to binary masks
+    _h, _w = image_array.shape[:2]
+    _gt_tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
+    _gt_ssu_map = boxes_to_gt_ssu_map(_gt_tagged, _w, _h)
+    _pred_masks = boxes_to_pred_masks(pred_boxes, _w, _h)
 
-    # Compute masks
-    cote_masks = compute_cote_masks(sample_predictions, gt_boxes, image_array.shape[:2])
+    # Compute COTe pixel-state masks
+    cote_masks = compute_cote_masks(_gt_ssu_map, _pred_masks)
 
     # Visualize
     fig = visualize_cote_states(
@@ -711,7 +474,6 @@ def _(
         cote_masks,
         figsize=(12, 6.2),
         dpi=300,
-        # output_path='cote_visualization.pdf'  # Uncomment to save
     )
     fig.savefig(figure_path / "example_cote_components", bbox_inches="tight", pad_inches=0)
     plt.show()
@@ -719,15 +481,20 @@ def _(
 
 
 @app.cell
-def _(cote_score, ground_truth, gt_boxes, iou, mean_iou, mo, np, pred_boxes):
+def _(boxes_to_gt_ssu_map, boxes_to_pred_masks, cote_score, ground_truth, gt_boxes, iou, mean_iou, mo, np, pred_boxes):
 
     img_wx = int(ground_truth["page"]["width"])
     img_hx = int(ground_truth["page"]["height"])
 
     mIoU = mean_iou(pred_boxes, gt_boxes)
 
+    # Convert to SSU map and pred masks (required by new cote_score API)
+    _gt_tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
+    _gt_ssu_map = boxes_to_gt_ssu_map(_gt_tagged, img_wx, img_hx)
+    _pred_masks = boxes_to_pred_masks(pred_boxes, img_wx, img_hx)
+
     # Compute COTe score (C - O - T)
-    cote, C, O, T, E = cote_score(pred_boxes, gt_boxes, img_wx, img_hx)
+    cote, C, O, T, E = cote_score(_gt_ssu_map, _pred_masks)
 
     # Compute F1 score (IoU threshold = 0.5) using optimal Hungarian matching
     from scipy.optimize import linear_sum_assignment
@@ -760,504 +527,6 @@ def _(cote_score, ground_truth, gt_boxes, iou, mean_iou, mo, np, pred_boxes):
     \\end{{table}}"""
 
     mo.md(f"### LaTeX Table Output\n```\n{cote_example_latex_table}\n```")
-    return
-
-
-@app.cell
-def _(cdd, ground_truth, mo, pred_boxes):
-    """Compute character-level CDD for erroneous parsing and LLM hallucination."""
-    from jiwer import cer
-
-    def _chars_in_regions(all_chars, regions):
-        """Return characters whose centre falls within any of the given regions."""
-        result = []
-        for char in all_chars:
-            cx = char["bbox"][0] + char["bbox"][2] / 2
-            cy = char["bbox"][1] + char["bbox"][3] / 2
-            for r in regions:
-                if r["x"] <= cx <= r["x"] + r["width"] and r["y"] <= cy <= r["y"] + r["height"]:
-                    result.append(char["char"])
-                    break
-        return result
-
-    # Collect all characters with their bboxes
-    all_chars = []
-    for story in ground_truth["stories"].values():
-        for _line in story["lines"]:
-            for char in _line["characters"]:
-                all_chars.append(char)
-
-    gt_text_str = "".join(c["char"] for c in all_chars)
-    detected_text_chars = _chars_in_regions(all_chars, pred_boxes)
-    detected_text_str = "".join(detected_text_chars)
-
-    # Erroneous parsing CDD (CER not meaningful — order is not comparable across box sets)
-    err_cdd, _ = cdd([gt_text_str], [detected_text_str])
-
-    # LLM hallucination: model gets stuck repeating a phrase
-    hallucinated_text = (
-        "There was a young man who read text, "
-        "Whose mind was extremely vexed; " + "His boxes unbounded, " * 50
-    )
-    halluc_cdd, _ = cdd([gt_text_str], [hallucinated_text])
-    halluc_cer = cer(gt_text_str, hallucinated_text)
-
-    # Perfect parsing (no errors)
-    perfect_cdd, _ = cdd([gt_text_str], [gt_text_str])
-
-    mo.md(
-        f"## Character Distribution Divergence (CDD)\n\n"
-        f"| Scenario | Characters | CER | CDD |\n"
-        f"|----------|-----------|-----|-----|\n"
-        f"| Perfect parsing | {len(gt_text_str)} | 0 | {perfect_cdd:.4f} |\n"
-        f"| Erroneous parsing | {len(detected_text_chars)} | — | {err_cdd:.4f} |\n"
-        f"| LLM hallucination | {len(hallucinated_text)} | {halluc_cer:.4f} | {halluc_cdd:.4f} |\n\n"
-        f"CER is not reported for erroneous parsing because character order is not "
-        f"comparable across different bounding box sets — this is precisely the scenario "
-        f"where CDD provides value as an order-agnostic metric.\n\n"
-        f"The hallucination simulates an LLM that starts correctly but gets locked "
-        f'repeating *"His boxes unbounded,"* 50 times — producing astronomical CER '
-        f"and a distinctive CDD from the skewed character distribution."
-    )
-    return all_chars, cer
-
-
-@app.cell
-def _(all_chars, cdd, cer, gt_boxes, np, pd, pred_boxes):
-    """Sweep OCR corruption levels and compute CDD vs actual CER."""
-    import random
-    import string
-    import pkg_resources
-
-    from collections import Counter
-    from scrambledtext import ProbabilityDistributions, CorruptionEngine
-
-    # Load built-in probability distributions
-    _json_path = pkg_resources.resource_filename("scrambledtext", "corruption_distribs.json")
-    _distribs = ProbabilityDistributions.load_from_json(_json_path)
-
-    # Printable characters for random corruption
-    _random_chars = string.ascii_letters + string.digits + string.punctuation + " "
-
-    def _texts_per_region(all_chars, regions):
-        """Return list of text strings, one per region."""
-        region_chars = [[] for _ in regions]
-        for char in all_chars:
-            cx = char["bbox"][0] + char["bbox"][2] / 2
-            cy = char["bbox"][1] + char["bbox"][3] / 2
-            for i, r in enumerate(regions):
-                if r["x"] <= cx <= r["x"] + r["width"] and r["y"] <= cy <= r["y"] + r["height"]:
-                    region_chars[i].append(char["char"])
-                    break
-        return ["".join(chars) for chars in region_chars]
-
-    def _random_corrupt(text, rate):
-        return "".join(random.choice(_random_chars) if random.random() < rate else c for c in text)
-
-    def _corrupt_regions_and_measure(region_texts, target_cer, engine, corrupt_fn):
-        """Corrupt each region independently, return weighted CER and concatenated text."""
-        corrupted_parts = []
-        weighted_cer_num = 0.0
-        total_chars = 0
-
-        for text in region_texts:
-            if not text:
-                continue
-            n = len(text)
-            corrupted = text if target_cer == 0 else corrupt_fn(text)
-            corrupted_parts.append(corrupted)
-            weighted_cer_num += cer(text, corrupted) * n
-            total_chars += n
-
-        weighted_cer = weighted_cer_num / total_chars if total_chars > 0 else 0.0
-        return weighted_cer, "".join(corrupted_parts)
-
-    _gt_text_str = "".join(c["char"] for c in all_chars)
-    _perfect_region_texts = _texts_per_region(all_chars, gt_boxes)
-    _erroneous_region_texts = _texts_per_region(all_chars, pred_boxes)
-    _erroneous_uncorrupted_str = "".join(_erroneous_region_texts)
-
-    _gt_counter = Counter(_gt_text_str)
-    _parsing_counter = Counter(_erroneous_uncorrupted_str)
-
-    # Corruption levels to sweep
-    _cer_levels = np.arange(0, 0.1, 0.001)
-    _n_repeats = 30
-
-    _rows = []
-    _char_count_rows = []
-    for _target_cer in _cer_levels:
-        for _repeat in range(_n_repeats):
-            if _target_cer == 0:
-                _e_cer_val, _e_text = 0.0, _erroneous_uncorrupted_str
-                _r_cer_val, _r_text = 0.0, "".join(_perfect_region_texts)
-            else:
-                _engine = CorruptionEngine(
-                    _distribs.conditional,
-                    _distribs.substitutions,
-                    _distribs.insertions,
-                    target_wer=1.0,
-                    target_cer=_target_cer,
-                )
-                _realistic_fn = lambda t: _engine.corrupt_text(t)[0]
-                _random_fn = lambda t: _random_corrupt(t, _target_cer)
-
-                # Corrupt the erroneous text once — derive both d_total and d_ocr from it
-                _e_cer_val, _e_text = _corrupt_regions_and_measure(
-                    _erroneous_region_texts, _target_cer, _engine, _realistic_fn
-                )
-                _r_cer_val, _r_text = _corrupt_regions_and_measure(
-                    _perfect_region_texts, _target_cer, _engine, _random_fn
-                )
-
-            # d_total: GT vs corrupted erroneous text (parsing + OCR combined)
-            _d_total_val, _ = cdd([_gt_text_str], [_e_text])
-            # d_ocr: erroneous uncorrupted vs corrupted erroneous text (OCR only)
-            _d_ocr_val, _ = cdd([_erroneous_uncorrupted_str], [_e_text])
-            # d_random: GT vs randomly corrupted perfect text
-            _d_random_val, _ = cdd([_gt_text_str], [_r_text])
-
-            _rows.extend(
-                [
-                    {
-                        "target_cer": float(_target_cer),
-                        "repeat": int(_repeat),
-                        "condition": "$d_{total}$",
-                        "actual_cer": float(_e_cer_val),
-                        "cdd": float(_d_total_val),
-                    },
-                    {
-                        "target_cer": float(_target_cer),
-                        "repeat": int(_repeat),
-                        "condition": "$d_{ocr}$",
-                        "actual_cer": float(_e_cer_val),
-                        "cdd": float(_d_ocr_val),
-                    },
-                    {
-                        "target_cer": float(_target_cer),
-                        "repeat": int(_repeat),
-                        "condition": "$d_{random}$",
-                        "actual_cer": float(_r_cer_val),
-                        "cdd": float(_d_random_val),
-                    },
-                ]
-            )
-
-            _char_count_rows.append(
-                {
-                    "target_cer": float(_target_cer),
-                    "repeat": int(_repeat),
-                    "actual_cer_realistic": float(_e_cer_val),
-                    "actual_cer_random": float(_r_cer_val),
-                    "counter_realistic": Counter(_e_text),
-                    "counter_random": Counter(_r_text),
-                }
-            )
-
-    sweep_df = pd.DataFrame(_rows)
-    sweep_summary_df = (
-        sweep_df.groupby(["target_cer", "condition"], as_index=False)
-        .agg(actual_cer_mean=("actual_cer", "mean"), cdd_mean=("cdd", "mean"))
-        .sort_values(["condition", "target_cer"], kind="stable")
-    )
-
-    sweep_gt_text_str = _gt_text_str
-    sweep_erroneous_uncorrupted_str = _erroneous_uncorrupted_str
-    sweep_char_counts = _char_count_rows
-    sweep_gt_counter = _gt_counter
-    sweep_parsing_counter = _parsing_counter
-    return (
-        Counter,
-        sweep_char_counts,
-        sweep_erroneous_uncorrupted_str,
-        sweep_gt_counter,
-        sweep_gt_text_str,
-        sweep_parsing_counter,
-        sweep_summary_df,
-    )
-
-
-@app.cell
-def _(
-    Counter,
-    aes,
-    figure_path,
-    ggplot,
-    labs,
-    mo,
-    pd,
-    sweep_char_counts,
-    sweep_gt_counter,
-    sweep_parsing_counter,
-    theme,
-    theme_minimal,
-):
-    """Character distribution comparison at ~5% CER for different corruption types."""
-
-    from plotnine import element_text, facet_wrap, geom_col, scale_x_discrete
-
-    _cer_lo, _cer_hi = 0.045, 0.055
-
-    # Aggregate character counters for samples within the CER range
-    _realistic_agg = Counter()
-    _random_agg = Counter()
-    _n_realistic = 0
-    _n_random = 0
-
-    for _row in sweep_char_counts:
-        if _cer_lo <= _row["actual_cer_realistic"] <= _cer_hi:
-            _realistic_agg += _row["counter_realistic"]
-            _n_realistic += 1
-        if _cer_lo <= _row["actual_cer_random"] <= _cer_hi:
-            _random_agg += _row["counter_random"]
-            _n_random += 1
-
-    # Top 30 characters by ground truth frequency (descending)
-    _top_chars = [ch for ch, _ in sweep_gt_counter.most_common(15)]
-    _gt_total = sum(sweep_gt_counter.values())
-    _top_coverage = sum(sweep_gt_counter[ch] for ch in _top_chars) / _gt_total
-
-    # Build long-format DataFrame
-    def _make_rows(counter, condition, chars):
-        total = sum(counter.values())
-        if total == 0:
-            return []
-        return [
-            {
-                "char": "␣" if ch == " " else ch,
-                "proportion": counter.get(ch, 0) / total,
-                "condition": condition,
-            }
-            for ch in chars
-        ]
-
-    _plot_rows = []
-    _plot_rows.extend(_make_rows(sweep_gt_counter, "Ground truth", _top_chars))
-    _plot_rows.extend(_make_rows(sweep_parsing_counter, "Parsing only", _top_chars))
-    _plot_rows.extend(_make_rows(_realistic_agg, "Parsing + realistic OCR", _top_chars))
-    _plot_rows.extend(_make_rows(_random_agg, "Random corruption", _top_chars))
-
-    _plot_df = pd.DataFrame(_plot_rows)
-    _plot_df["condition"] = pd.Categorical(
-        _plot_df["condition"],
-        categories=["Ground truth", "Parsing only", "Parsing + realistic OCR", "Random corruption"],
-        ordered=True,
-    )
-    _char_order = ["␣" if ch == " " else ch for ch in _top_chars]
-
-    _char_dist_plot = (
-        ggplot(_plot_df, aes(x="char", y="proportion", fill="condition"))
-        + geom_col(show_legend=True, position="dodge")
-        + scale_x_discrete(limits=_char_order)
-        + labs(
-            x="Character",
-            y="Proportion",
-            title="Character distributions at ~5% CER\n(top 30 characters by ground truth frequency)",
-        )
-        + theme_minimal()
-        + theme(
-            axis_text_x=element_text(size=7, family="monospace"),
-            figure_size=(10, 10),
-        )
-    )
-
-    _char_dist_plot.save(figure_path / "char_distribution_5pct_cer.png", dpi=300, verbose=False)
-
-    mo.vstack(
-        [
-            _char_dist_plot,
-            mo.md(
-                f"Top 30 characters account for **{_top_coverage:.1%}** of ground truth text. "
-                f"Samples used — realistic OCR: {_n_realistic}, random corruption: {_n_random} "
-                f"(filtered to {_cer_lo*100:.1f}–{_cer_hi*100:.1f}% actual CER)."
-            ),
-        ]
-    )
-    return element_text, facet_wrap, geom_col, scale_x_discrete
-
-
-@app.cell
-def _(
-    Counter,
-    aes,
-    element_text,
-    facet_wrap,
-    figure_path,
-    geom_col,
-    geom_vline,
-    ggplot,
-    labs,
-    mo,
-    pd,
-    scale_x_discrete,
-    sweep_char_counts,
-    sweep_gt_counter,
-    sweep_parsing_counter,
-    theme,
-    theme_minimal,
-):
-    """Delta from ground truth character distribution at ~5% CER."""
-    from plotnine import scale_fill_manual
-
-    _cer_lo, _cer_hi = 0.045, 0.055
-
-    # Aggregate character counters for samples within the CER range
-    _realistic_agg = Counter()
-    _random_agg = Counter()
-    _n_realistic = 0
-    _n_random = 0
-
-    for _row in sweep_char_counts:
-        if _cer_lo <= _row["actual_cer_realistic"] <= _cer_hi:
-            _realistic_agg += _row["counter_realistic"]
-            _n_realistic += 1
-        if _cer_lo <= _row["actual_cer_random"] <= _cer_hi:
-            _random_agg += _row["counter_random"]
-            _n_random += 1
-
-    # Proportions for each distribution
-    def _to_props(counter):
-        total = sum(counter.values())
-        return {ch: count / total for ch, count in counter.items()} if total > 0 else {}
-
-    _gt_props = _to_props(sweep_gt_counter)
-    _parsing_props = _to_props(sweep_parsing_counter)
-    _realistic_props = _to_props(_realistic_agg)
-    _random_props = _to_props(_random_agg)
-
-    # All characters across all distributions
-    _all_chars = (
-        set(sweep_gt_counter) | set(sweep_parsing_counter) | set(_realistic_agg) | set(_random_agg)
-    )
-    _gt_chars = set(sweep_gt_counter)
-
-    # Order: GT characters by frequency (descending), then new characters alphabetically
-    _gt_ordered = [ch for ch, _ in sweep_gt_counter.most_common()]
-    _new_ordered = sorted(_all_chars - _gt_chars)
-    _char_order_raw = _gt_ordered + _new_ordered
-    _separator_pos = len(_gt_ordered) + 0.5  # for visual separator
-
-    def _display(ch):
-        return "␣" if ch == " " else ch
-
-    _char_order = [_display(ch) for ch in _char_order_raw]
-
-    # Build delta rows
-    _conditions = {
-        "Parsing only": _parsing_props,
-        "Parsing + realistic OCR": _realistic_props,
-        "Random corruption": _random_props,
-    }
-
-    _plot_rows = []
-    for cond_name, props in _conditions.items():
-        for ch in _char_order_raw:
-            delta = props.get(ch, 0.0) - _gt_props.get(ch, 0.0)
-            in_gt = ch in _gt_chars
-            _plot_rows.append(
-                {
-                    "char": _display(ch),
-                    "delta": delta,
-                    "condition": cond_name,
-                    "char_type": "In ground truth" if in_gt else "New character",
-                }
-            )
-
-    _plot_df = pd.DataFrame(_plot_rows)
-    _plot_df["condition"] = pd.Categorical(
-        _plot_df["condition"],
-        categories=["Parsing only", "Parsing + realistic OCR", "Random corruption"],
-        ordered=True,
-    )
-
-    _delta_plot = (
-        ggplot(_plot_df, aes(x="char", y="delta", fill="char_type"))
-        + geom_col()
-        + geom_vline(xintercept=_separator_pos, linetype="--", color="grey", alpha=0.5)
-        + facet_wrap("~condition", ncol=1)
-        + scale_x_discrete(limits=_char_order)
-        + scale_fill_manual(values={"In ground truth": "#4878D0", "New character": "#D65F5F"})
-        + labs(
-            x="Character",
-            y="Change in proportion (vs ground truth)",
-            title="Change in character distribution at ~5% CER",
-            fill="",
-        )
-        + theme_minimal()
-        + theme(
-            axis_text_x=element_text(size=6, family="monospace"),
-            legend_position="bottom",
-            figure_size=(12, 8),
-        )
-    )
-
-    # Summary stats per condition
-    _summary_parts = []
-    for cond_name, props in _conditions.items():
-        new_chars = {ch for ch in props if ch not in _gt_chars}
-        new_mass = sum(props.get(ch, 0.0) for ch in new_chars)
-        _summary_parts.append(
-            f"**{cond_name}**: {len(new_chars)} new characters, "
-            f"{new_mass:.2%} of mass in new characters"
-        )
-
-    _delta_plot.save(figure_path / "char_distribution_delta_5pct_cer.png", dpi=300, verbose=False)
-
-    mo.vstack(
-        [
-            _delta_plot,
-            mo.md(
-                f"Characters left of the dashed line exist in the ground truth (ordered by frequency); "
-                f"characters to the right are newly introduced by corruption.\n\n"
-                + " | ".join(_summary_parts)
-            ),
-        ]
-    )
-    return
-
-
-@app.cell
-def _(
-    aes,
-    cdd,
-    figure_path,
-    geom_hline,
-    geom_line,
-    ggplot,
-    labs,
-    mo,
-    sweep_erroneous_uncorrupted_str,
-    sweep_gt_text_str,
-    sweep_summary_df,
-    theme,
-    theme_minimal,
-):
-    """Combined CDD decomposition plot: d_total, d_ocr, d_random, and d_parsing."""
-
-    # d_parsing is constant — the irreducible cost of wrong bounding boxes
-    _d_parsing, _ = cdd([sweep_gt_text_str], [sweep_erroneous_uncorrupted_str])
-
-    _combined_plot = (
-        ggplot(sweep_summary_df, aes(x="actual_cer_mean", y="cdd_mean", color="condition"))
-        + geom_line()
-        + geom_hline(yintercept=_d_parsing, linetype="--", color="black")
-        + labs(
-            x="Measured CER",
-            y="CDD",
-            title="Impact of different corruption types on\nCharacter Distribution Distance",
-            color="",
-        )
-        + theme_minimal()
-        + theme(legend_position="bottom")
-    )
-
-    _combined_plot.save(figure_path / "cdd_decomposition.png", dpi=300, verbose=False)
-
-    mo.vstack(
-        [
-            _combined_plot,
-        ]
-    )
     return
 
 
