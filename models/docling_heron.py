@@ -68,8 +68,6 @@ class DoclingLayoutHeron(LayoutModel):
             self.image_processor = RTDetrImageProcessor.from_pretrained(self.model_name)
             self.model = RTDetrV2ForObjectDetection.from_pretrained(self.model_name)
             self.model.to(self.device)
-            if self.device.startswith("cuda"):
-                self.model.half()
             self.model.eval()
             logger.info(f"Model loaded successfully on device: {self.device}")
         except Exception as e:
