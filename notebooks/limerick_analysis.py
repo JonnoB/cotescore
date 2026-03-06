@@ -24,25 +24,17 @@ def _():
     figure_path = Path("data/figures")
     return (
         Path,
-        aes,
         boxes_to_gt_ssu_map,
         boxes_to_pred_masks,
         compute_cote_masks,
         cote_score,
         figure_path,
-        geom_hline,
-        geom_line,
-        geom_vline,
-        ggplot,
         iou,
         json,
-        labs,
         mean_iou,
         np,
         pd,
         plt,
-        theme,
-        theme_minimal,
         visualize_cote_states,
     )
 
@@ -170,7 +162,7 @@ def _(mo):
 
 
 @app.cell
-def _(figure_path, ground_truth, image_array, np, plt):
+def _(figure_path, ground_truth, image_array, plt):
     """Visualize SSU-level bounding boxes colored by SSU id."""
     import matplotlib.patches as _patches
     import matplotlib.cm as _cm
@@ -481,7 +473,18 @@ def _(
 
 
 @app.cell
-def _(boxes_to_gt_ssu_map, boxes_to_pred_masks, cote_score, ground_truth, gt_boxes, iou, mean_iou, mo, np, pred_boxes):
+def _(
+    boxes_to_gt_ssu_map,
+    boxes_to_pred_masks,
+    cote_score,
+    ground_truth,
+    gt_boxes,
+    iou,
+    mean_iou,
+    mo,
+    np,
+    pred_boxes,
+):
 
     img_wx = int(ground_truth["page"]["width"])
     img_hx = int(ground_truth["page"]["height"])

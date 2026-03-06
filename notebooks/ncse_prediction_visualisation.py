@@ -22,8 +22,10 @@ def _():
 
     yolo_df = pd.read_csv(_data_dir / "yolo_predictions.csv")
     heron_df = pd.read_csv(_data_dir / "heron_predictions.csv")
+    ppdoc_l = pd.read_csv(_data_dir / "ppdoc_l_predictions.csv")
     return (
         Image,
+        Path,
         boxes_to_gt_ssu_map,
         boxes_to_pred_masks,
         compute_cote_masks,
@@ -34,6 +36,7 @@ def _():
         np,
         overlap,
         plt,
+        ppdoc_l,
         trespass,
         visualize_cote_states,
         yolo_df,
@@ -75,14 +78,10 @@ def _(
         gt_boxes = img_df[img_df.source == "gt"].to_dict("records")
         pred_boxes = img_df[img_df.source == "pred"].to_dict("records")
 
-        # Use actual image dimensions so masks align with the displayed image.
-        # Scale box coordinates proportionally if the image on disk differs from
-        # the dimensions recorded in the CSV during export.
         image_array = np.array(Image.open(image_dir / filename).convert("RGB"))
         actual_h, actual_w = image_array.shape[:2]
         csv_w = int(img_df.image_width.iloc[0])
-        csv_h = int(img_df.image_height.iloc[0])
-        scale = actual_w / csv_w  # assumes aspect ratio is preserved
+        scale = actual_w / csv_w
 
         gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, actual_w, actual_h, scale=scale)
         pred_masks = boxes_to_pred_masks(pred_boxes, actual_w, actual_h, scale=scale)
@@ -94,7 +93,9 @@ def _(
         tres = trespass(gt_ssu_map, pred_masks)
         exc = excess(gt_ssu_map, pred_masks)
 
-        fig = visualize_cote_states(image_array, masks, figsize=figsize, dpi=96)
+        fig, ax = plt.subplots(figsize=figsize, dpi=72)
+        patches = visualize_cote_states(image_array, masks, ax)
+        fig.legend(handles=patches, loc="lower center", ncol=max(len(patches), 1), framealpha=0.9, fontsize=20)
 
         metrics_text = (
             f"Coverage: {cov:.3f}   Overlap: {ovl:.3f}   "
@@ -102,11 +103,120 @@ def _(
             f"GT boxes: {len(gt_boxes)}   Pred boxes: {len(pred_boxes)}"
         )
         _full_title = f"{title}\n{metrics_text}" if title else metrics_text
-        fig.suptitle(_full_title, fontsize=10, y=1.02)
+        fig.suptitle(_full_title, fontsize=30, y=1.02)
+        plt.tight_layout()
         plt.close(fig)
         return fig
 
-    return (make_cote_figure,)
+    return
+
+
+@app.cell
+def _(
+    Image,
+    boxes_to_gt_ssu_map,
+    boxes_to_pred_masks,
+    compute_cote_masks,
+    coverage,
+    excess,
+    image_dir,
+    np,
+    overlap,
+    plt,
+    trespass,
+    visualize_cote_states,
+):
+    def make_multi_model_figure(dfs, filename, panel_width=10, metrics_col_width=1.8, dpi=72):
+        """Render one image with all models side-by-side in a single figure.
+
+        Args:
+            dfs: List of (model_name, dataframe) tuples.
+            filename: Image filename to visualise.
+            panel_width: Width in inches of each image panel.
+            metrics_col_width: Width in inches of the metrics column beside each panel.
+            dpi: Figure resolution.
+
+        Returns:
+            matplotlib Figure with one panel per model, shared legend and title.
+        """
+        # Peek at image to compute aspect ratio so panels have no whitespace.
+        _img_peek = Image.open(image_dir / filename)
+        _iw, _ih = _img_peek.size
+        panel_height = panel_width * (_ih / _iw)
+
+        n = len(dfs)
+        fig_width = n * (panel_width + metrics_col_width)
+        # constrained_layout automatically reserves space for suptitle and legend
+        fig = plt.figure(figsize=(fig_width, panel_height), dpi=dpi, layout="constrained")
+
+        # Alternating columns: [image, metrics, image, metrics, ...]
+        gs = fig.add_gridspec(
+            1, n * 2,
+            width_ratios=[panel_width, metrics_col_width] * n,
+            wspace=0.02,
+        )
+
+        best_patches = []
+        for i, (model_name, df) in enumerate(dfs):
+            img_ax = fig.add_subplot(gs[0, i * 2])
+            txt_ax = fig.add_subplot(gs[0, i * 2 + 1])
+
+            img_df = df[df.filename == filename]
+            gt_boxes = img_df[img_df.source == "gt"].to_dict("records")
+            pred_boxes = img_df[img_df.source == "pred"].to_dict("records")
+
+            image_array = np.array(Image.open(image_dir / filename).convert("RGB"))
+            actual_h, actual_w = image_array.shape[:2]
+            csv_w = int(img_df.image_width.iloc[0])
+            scale = actual_w / csv_w
+
+            gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, actual_w, actual_h, scale=scale)
+            pred_masks = boxes_to_pred_masks(pred_boxes, actual_w, actual_h, scale=scale)
+
+            masks = compute_cote_masks(gt_ssu_map, pred_masks)
+
+            cov = coverage(gt_ssu_map, pred_masks)
+            ovl = overlap(gt_ssu_map, pred_masks)
+            tres = trespass(gt_ssu_map, pred_masks)
+            exc = excess(gt_ssu_map, pred_masks)
+
+            patches = visualize_cote_states(image_array, masks, img_ax)
+            if len(patches) > len(best_patches):
+                best_patches = patches
+
+            img_ax.set_title(model_name, fontsize=20, pad=4)
+
+            txt_ax.axis("off")
+            metrics_text = (
+                f"Cov:  {cov:.3f}\n\n"
+                f"Ovl:  {ovl:.3f}\n\n"
+                f"Tres: {tres:.3f}\n\n"
+                f"Exc:  {exc:.3f}\n\n"
+                f"──────\n\n"
+                f"GT:   {len(gt_boxes)}\n\n"
+                f"Pred: {len(pred_boxes)}"
+            )
+            txt_ax.text(
+                0.1, 0.5, metrics_text,
+                transform=txt_ax.transAxes,
+                fontsize=20,
+                verticalalignment="center",
+                horizontalalignment="left",
+                fontfamily="monospace",
+            )
+
+        fig.suptitle(f"Model parsing performance on {filename[0:-4]}", fontsize=25)
+        fig.legend(
+            handles=best_patches,
+            loc="lower center",
+            ncol=max(len(best_patches), 1),
+            framealpha=0.9,
+            fontsize=18,
+        )
+        plt.close(fig)
+        return fig
+
+    return (make_multi_model_figure,)
 
 
 @app.cell
@@ -116,14 +226,40 @@ def _(heron_df):
 
 
 @app.cell
-def _(heron_df, make_cote_figure, yolo_df):
+def _(heron_df, make_multi_model_figure, ppdoc_l, yolo_df):
     import marimo as mo
 
-    # --- Side-by-side ---
-    _filename = "TEC_1883-12-06_page_312.png"
-    _fig_yolo = make_cote_figure(yolo_df, _filename, figsize=(12, 8), title=f"YOLO: {_filename}")
-    _fig_heron = make_cote_figure(heron_df, _filename, figsize=(12, 8), title=f"Heron: {_filename}")
-    mo.hstack([mo.as_html(_fig_yolo), mo.as_html(_fig_heron)])
+    _filename = 'EWJ_1858-08-01_page_5.png'
+    _fig = make_multi_model_figure(
+        [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)],
+        _filename,
+    )
+    mo.as_html(_fig)
+    return
+
+
+@app.cell
+def _(Path, heron_df, make_multi_model_figure, plt, ppdoc_l, yolo_df):
+    _output_dir = Path("data/combined_predictions")
+    _output_dir.mkdir(parents=True, exist_ok=True)
+
+    _filenames = (
+        set(yolo_df["filename"].unique())
+        & set(heron_df["filename"].unique())
+        & set(ppdoc_l["filename"].unique())
+    )
+
+    for _filename in sorted(_filenames):
+        _fig = make_multi_model_figure(
+            [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)],
+            _filename,
+            dpi=72,
+        )
+        _fig.savefig(_output_dir / _filename, bbox_inches="tight", dpi=72, facecolor="white")
+        plt.close(_fig)
+        print(f"Saved {_filename}")
+
+    print(f"Done. {len(_filenames)} images saved to {_output_dir}")
     return
 
 

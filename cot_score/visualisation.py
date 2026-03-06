@@ -5,7 +5,7 @@ Provides pixel-level mask computation and matplotlib-based rendering of
 COTe states as coloured overlays on document images.
 """
 
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Dict, Sequence, Tuple, Union
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -88,24 +88,18 @@ def compute_cote_masks(
 def visualize_cote_states(
     image: np.ndarray,
     masks: Dict[str, np.ndarray],
-    figsize: Tuple[int, int] = (14, 10),
-    dpi: int = 300,
-    output_path: Optional[str] = None,
-) -> plt.Figure:
-    """Render COTe pixel-state masks as coloured overlays on an image.
+    ax: plt.Axes,
+) -> list:
+    """Draw image and COTe mask overlays into an existing axes.
 
     Args:
         image: Grayscale (2D) or RGB (3D) image array.
         masks: Dict of binary masks, e.g. from :func:`compute_cote_masks`.
-        figsize: Figure size in inches.
-        dpi: Figure resolution.
-        output_path: If given, save the figure to this path.
+        ax: Matplotlib axes to draw into.
 
     Returns:
-        matplotlib Figure object.
+        List of legend Patch objects for the states that were drawn.
     """
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-
     if image.ndim == 2:
         ax.imshow(image, cmap="gray", vmin=0, vmax=255)
     else:
@@ -113,33 +107,14 @@ def visualize_cote_states(
 
     legend_patches = []
     for state, color in COTE_COLORS.items():
-        if state not in masks:
+        if state not in masks or np.sum(masks[state]) == 0:
             continue
-        mask = masks[state]
-        if np.sum(mask) == 0:
-            continue
-
-        rgba = np.zeros((*mask.shape, 4), dtype=np.float32)
-        rgba[mask > 0] = color
+        rgba = np.zeros((*masks[state].shape, 4), dtype=np.float32)
+        rgba[masks[state] > 0] = color
         ax.imshow(rgba)
-
         legend_patches.append(
             mpatches.Patch(color=color[:3], alpha=color[3], label=COTE_LABELS[state])
         )
 
-    ax.set_title("COTe components", fontsize=25)
     ax.axis("off")
-
-    fig.legend(
-        handles=legend_patches,
-        loc="lower center",
-        ncol=max(len(legend_patches), 1),
-        framealpha=0.9,
-        fontsize=15,
-    )
-    plt.tight_layout()
-
-    if output_path:
-        fig.savefig(output_path, bbox_inches="tight", dpi=dpi, facecolor="white")
-
-    return fig
+    return legend_patches
