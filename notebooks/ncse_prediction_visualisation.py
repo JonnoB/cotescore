@@ -110,11 +110,17 @@ def _(
 
 
 @app.cell
+def _(heron_df):
+    heron_df['filename'].unique()
+    return
+
+
+@app.cell
 def _(heron_df, make_cote_figure, yolo_df):
     import marimo as mo
 
     # --- Side-by-side ---
-    _filename = "CLD_1853-07-30_page_2.png"
+    _filename = "TEC_1883-12-06_page_312.png"
     _fig_yolo = make_cote_figure(yolo_df, _filename, figsize=(12, 8), title=f"YOLO: {_filename}")
     _fig_heron = make_cote_figure(heron_df, _filename, figsize=(12, 8), title=f"Heron: {_filename}")
     mo.hstack([mo.as_html(_fig_yolo), mo.as_html(_fig_heron)])

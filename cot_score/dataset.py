@@ -94,6 +94,21 @@ class NCSEDataset:
 
             image_annotations = df[df["filename"] == csv_filename]
             annotations = self._build_annotations(image_annotations)
+
+            # Rescale GT coordinates if the annotations were recorded at a different
+            # resolution than the image on disk (mirrors HNLA2013Dataset behaviour).
+            if "image_width" in image_annotations.columns:
+                csv_ann_w = int(image_annotations["image_width"].iloc[0])
+                with Image.open(image_path) as im:
+                    img_w, img_h = im.size
+                if img_w != csv_ann_w and csv_ann_w > 0:
+                    scale = img_w / csv_ann_w
+                    for ann in annotations:
+                        ann["x"] *= scale
+                        ann["y"] *= scale
+                        ann["width"] *= scale
+                        ann["height"] *= scale
+
             self.annotations_by_image[str(image_path)] = annotations
 
         self._loaded = True
