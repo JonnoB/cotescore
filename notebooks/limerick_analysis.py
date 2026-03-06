@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.16.5"
+__generated_with = "0.20.4"
 app = marimo.App(width="medium")
 
 
@@ -217,8 +217,7 @@ def _(iou):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     ## Ground Truth Visualization
 
     The following cells show the bounding boxes at different granularity levels:
@@ -230,8 +229,7 @@ def _(mo):
     - SSU 0: Title
     - SSU 1: Body text in column 1
     - SSU 2: Continuation in column 2
-    """
-    )
+    """)
     return
 
 
@@ -332,8 +330,7 @@ def _(ground_truth, gt_to_bboxes, image_array, plot_page_and_annotations, plt):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     ## Granularity Mismatch in Bounding Box Evaluation
 
     Traditional detection metrics (Precision/Recall/F1) assume ground truth and predictions
@@ -347,8 +344,7 @@ def _(mo):
 
     The **SSU-based Coverage** metric handles this correctly by measuring what fraction of
     the ground truth area is covered by predictions, regardless of box count.
-    """
-    )
+    """)
     return
 
 
@@ -454,8 +450,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     ## COTe Pixel State Visualization
 
     This section provides tools to visualize the pixel-level states used in COTe scoring:
@@ -464,8 +459,7 @@ def _(mo):
     - **Trespass**: Pixels in GT covered by a prediction assigned to a different GT
     - **Overlap+Trespass**: Pixels with multiple predictions, at least one trespassing
     - **Excess**: Pixels outside GT but covered by predictions
-    """
-    )
+    """)
     return
 
 

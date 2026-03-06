@@ -1,0 +1,337 @@
+import marimo
+
+__generated_with = "0.20.4"
+app = marimo.App(width="medium")
+
+
+@app.cell
+def _():
+
+
+    return
+
+
+@app.cell
+def _():
+    import pandas as pd
+    import numpy as np
+    from pathlib import Path
+    import json
+    import marimo as mo
+    import patchworklib as pw
+    from plotnine import (aes, geom_hline, geom_line, ggplot, labs, theme, theme_minimal, geom_vline, geom_point, scale_x_log10, facet_wrap, element_text, element_blank)
+
+
+    return (
+        Path,
+        aes,
+        element_blank,
+        facet_wrap,
+        geom_point,
+        ggplot,
+        json,
+        labs,
+        mo,
+        pd,
+        theme,
+    )
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(Path):
+    results_folder = Path("data/results")
+    ppdoc_results_folder = results_folder / 'ppdoc'
+    torch_results_folder = results_folder / 'torch'
+
+
+    doclaynet_json = 'doclaynet/benchmark_all_results.json'
+    HNLA_json = 'hnla2013/benchmark_all_results.json'
+    NCSE_json = 'ncse/benchmark_all_results.json'
+    return (
+        HNLA_json,
+        NCSE_json,
+        doclaynet_json,
+        ppdoc_results_folder,
+        torch_results_folder,
+    )
+
+
+@app.cell
+def _(json, pd, ppdoc_results_folder, torch_results_folder):
+
+    def create_results_table(filename):
+        MODEL_NAME_MAP = {
+            'DocLayout-YOLO': 'YOLO',
+            'DoclingLayoutHeron': 'Heron',
+            'PPDocLayout-L': 'PPDoc-L',
+            'PPDocLayout-M': 'PPDoc-M',
+            'PPDocLayout-S': 'PPDoc-S'
+        }
+
+        out_df = []
+        for _folder in [ppdoc_results_folder, torch_results_folder]:
+            with open(_folder / filename, 'r') as f:
+                _data = json.load(f)
+            _df = pd.DataFrame.from_dict(_data['models'], orient='index')
+            out_df.append(_df)
+        out_df = pd.concat(out_df, ignore_index=False)
+        out_df = out_df.loc[:, ['cot_score', 'coverage', 'overlap', 'trespass', 'excess', 'mean_iou', 'map']]
+        out_df.index = out_df.index.map(lambda x: MODEL_NAME_MAP.get(x, x))
+        out_df = out_df.sort_index()
+        return out_df
+
+    def df_to_latex_md(df, caption, label):
+        col_rename = {
+            'cot_score': 'COTe',
+            'coverage':  'Coverage',
+            'overlap':   'Overlap',
+            'trespass':  'Trespass',
+            'excess':    'Excess',
+            'mean_iou':  'IoU',
+            'map':       'mAP'
+        }
+
+        col_best = {
+            'cot_score': 'high',
+            'coverage':  'high',
+            'overlap':   'low',
+            'trespass':  'low',
+            'excess':    'low',
+            'mean_iou':  'high',
+            'map':       'high'
+        }
+
+        df_fmt = df.copy().astype(float)
+
+        for col, direction in col_best.items():
+            if col in df_fmt.columns:
+                best_val = df_fmt[col].max() if direction == 'high' else df_fmt[col].min()
+                df_fmt[col] = df_fmt[col].apply(
+                    lambda x: f"\\textbf{{{x:.2f}}}" if x == best_val else f"{x:.2f}"
+                )
+
+        latex = (df_fmt.rename(columns=col_rename)
+                       .to_latex(
+                           index=True,
+                           escape=False,
+                           caption=caption,
+                           label=label
+                       ))
+
+        return f"### LaTeX Table Output\n```latex\n{latex}\n```"
+
+
+    return create_results_table, df_to_latex_md
+
+
+@app.cell
+def _(HNLA_json, NCSE_json, create_results_table, doclaynet_json):
+    doclaynet_df = create_results_table(doclaynet_json)
+    HNLA2013_df = create_results_table(HNLA_json)
+    NCSE_df = create_results_table(NCSE_json)
+    return HNLA2013_df, NCSE_df, doclaynet_df
+
+
+@app.cell
+def _(doclaynet_df):
+    doclaynet_df.index
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(df_to_latex_md, doclaynet_df, mo):
+    mo.md(df_to_latex_md(doclaynet_df, caption = 'Model results for DocLayNet', label= 'tab:res_doclaynet' ))
+    return
+
+
+@app.cell
+def _(HNLA2013_df, df_to_latex_md, mo):
+    mo.md(df_to_latex_md(HNLA2013_df, caption = 'Model results for HNLA2013', label= 'tab:res_HNLA2013' ))
+    return
+
+
+@app.cell
+def _(NCSE_df, df_to_latex_md, mo):
+    mo.md(df_to_latex_md(NCSE_df, caption = 'Model results for NCSE', label= 'tab:res_ncse' ))
+    return
+
+
+@app.cell
+def _(Path, json, pd):
+
+    def load_results_to_dataframe(base_path: str) -> pd.DataFrame:
+        """
+        Load all JSON result files from a directory and return a combined DataFrame.
+
+        Each row contains the model name, filename, and per-image metrics.
+        Files without a 'model' field are skipped.
+
+        Args:
+            base_path: Path to directory containing JSON result files
+
+        Returns:
+            DataFrame with columns: model, filename, mean_iou, coverage, 
+            overlap, trespass, excess, cot_score
+        """
+        records = []
+        path = Path(base_path)
+
+        for json_file in path.glob("*.json"):
+            with open(json_file, "r") as f:
+                data = json.load(f)
+
+            model = data.get("model")
+            if not model:
+                continue
+
+            for image_result in data.get("per_image_results", []):
+                record = {
+                    "model": model,
+                    "filename": image_result.get("filename"),
+                    **image_result.get("metrics", {})
+                }
+                records.append(record)
+
+        return pd.DataFrame(records)
+
+    return (load_results_to_dataframe,)
+
+
+@app.cell
+def _(load_results_to_dataframe, pd):
+    _MODEL_NAME_MAP = {
+            'juliozhao/DocLayout-YOLO-DocStructBench': 'YOLO',
+            'docling-project/docling-layout-heron': 'Heron',
+            'PP-DocLayout-L': 'PPDoc-L',
+            'PP-DocLayout-M': 'PPDoc-M',
+            'PP-DocLayout-S': 'PPDoc-S'
+        }
+
+    NCSE_comparison_df = pd.concat([load_results_to_dataframe('data/results/ppdoc/ncse'),
+    load_results_to_dataframe('data/results/torch/ncse')])
+
+    NCSE_comparison_df['model'] = NCSE_comparison_df['model'].map(lambda x: _MODEL_NAME_MAP.get(x, x))
+
+    NCSE_comparison_df
+    return (NCSE_comparison_df,)
+
+
+@app.cell
+def _(NCSE_comparison_df, aes, geom_point, ggplot):
+    ggplot(NCSE_comparison_df, aes(y = 'coverage', x = 'overlap', color = 'model')) + geom_point()
+    return
+
+
+@app.cell
+def _(NCSE_comparison_df, aes, geom_point, ggplot):
+    ggplot(NCSE_comparison_df, aes(y = 'coverage', x = 'trespass', color = 'model')) + geom_point()
+    return
+
+
+@app.cell
+def _(NCSE_comparison_df):
+    NCSE_comparison_df.drop(columns=['filename', 'model']).corr()
+    return
+
+
+@app.cell
+def _(NCSE_comparison_df):
+    NCSE_comparison_df.drop(columns='filename').groupby('model').apply(lambda x: x.drop(columns='model').corr())
+    return
+
+
+@app.cell
+def _(NCSE_comparison_df):
+    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='coverage').corr()
+    return
+
+
+@app.cell
+def _(NCSE_comparison_df):
+    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='overlap').corr()
+    return
+
+
+@app.cell
+def _(NCSE_comparison_df):
+    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='trespass').corr()
+    return
+
+
+@app.cell
+def _(NCSE_comparison_df):
+    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='cot_score').corr()
+    return
+
+
+@app.cell
+def _(
+    NCSE_comparison_df,
+    aes,
+    element_blank,
+    facet_wrap,
+    geom_point,
+    ggplot,
+    labs,
+    pd,
+    theme,
+):
+
+
+    # Filter to PPDoc family only
+    ppd_df = NCSE_comparison_df[NCSE_comparison_df['model'].str.startswith('PPDoc')].copy()
+
+    metrics = ['cot_score','coverage', 'overlap', 'trespass']
+
+    dfs = []
+    for metric in metrics:
+        # Get rank order from PPDoc-L for this metric
+        rank_map = (
+            ppd_df[ppd_df['model'] == 'PPDoc-L']
+            .sort_values(metric, ascending=False)['filename']
+            .reset_index(drop=True)
+            .reset_index()  # index becomes the rank
+            .rename(columns={'index': f'rank_{metric}', 'filename': 'filename'})
+        )
+
+        df_metric = ppd_df[['filename', 'model', metric]].copy()
+        df_metric = df_metric.merge(rank_map, on='filename')
+        df_metric = df_metric.rename(columns={metric: 'value'})
+        df_metric['metric'] = metric
+        df_metric = df_metric.rename(columns={f'rank_{metric}': 'rank'})
+        dfs.append(df_metric)
+
+    plot_df = pd.concat(dfs, ignore_index=True)
+
+    (
+        ggplot(plot_df, aes(x='rank', y='value', color='model'))
+        + geom_point(size=2, alpha=0.8)
+        + facet_wrap('~metric', scales='free_y', ncol=1)
+        + labs(x='', y='', color='Model', title='PPDoc Model Family Comparison')
+        + theme(
+            axis_text_x=element_blank(),
+            axis_ticks_x=element_blank(),
+            panel_grid_major_x=element_blank(),
+        )
+    )
+    return (ppd_df,)
+
+
+@app.cell
+def _(ppd_df):
+    ppd_df.drop(columns = ['model', 'filename']).agg(['mean', 'median'])
+    return
+
+
+if __name__ == "__main__":
+    app.run()
