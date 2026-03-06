@@ -22,19 +22,7 @@ def _():
     from plotnine import (aes, geom_hline, geom_line, ggplot, labs, theme, theme_minimal, geom_vline, geom_point, scale_x_log10, facet_wrap, element_text, element_blank)
 
 
-    return (
-        Path,
-        aes,
-        element_blank,
-        facet_wrap,
-        geom_point,
-        ggplot,
-        json,
-        labs,
-        mo,
-        pd,
-        theme,
-    )
+    return Path, aes, geom_point, ggplot, json, mo, pd
 
 
 @app.cell
@@ -138,6 +126,23 @@ def _(HNLA_json, NCSE_json, create_results_table, doclaynet_json):
 
 
 @app.cell
+def _(HNLA2013_df, NCSE_df, doclaynet_df, pd):
+    all_datasets = pd.concat([
+        doclaynet_df.assign(dataset='doclaynet'),
+        HNLA2013_df.assign(dataset='HNLA2013'),
+        NCSE_df.assign(dataset='NCSE')
+    ], ignore_index=False)
+    all_datasets = all_datasets.reset_index()
+    return (all_datasets,)
+
+
+@app.cell
+def _(aes, all_datasets, geom_point, ggplot):
+    ggplot(all_datasets, aes(x = 'cot_score', y = 'mean_iou', colour = 'index', shape = 'dataset')) + geom_point()
+    return
+
+
+@app.cell
 def _(doclaynet_df):
     doclaynet_df.index
     return
@@ -209,7 +214,7 @@ def _(Path, json, pd):
 
 @app.cell
 def _(load_results_to_dataframe, pd):
-    _MODEL_NAME_MAP = {
+    MODEL_NAME_MAP = {
             'juliozhao/DocLayout-YOLO-DocStructBench': 'YOLO',
             'docling-project/docling-layout-heron': 'Heron',
             'PP-DocLayout-L': 'PPDoc-L',
@@ -220,10 +225,18 @@ def _(load_results_to_dataframe, pd):
     NCSE_comparison_df = pd.concat([load_results_to_dataframe('data/results/ppdoc/ncse'),
     load_results_to_dataframe('data/results/torch/ncse')])
 
-    NCSE_comparison_df['model'] = NCSE_comparison_df['model'].map(lambda x: _MODEL_NAME_MAP.get(x, x))
+    NCSE_comparison_df['model'] = NCSE_comparison_df['model'].map(lambda x: MODEL_NAME_MAP.get(x, x))
 
-    NCSE_comparison_df
-    return (NCSE_comparison_df,)
+    HNLA_comparison_df = pd.concat([load_results_to_dataframe('data/results/ppdoc/hnla2013'),
+    load_results_to_dataframe('data/results/torch/hnla2013')])
+
+    HNLA_comparison_df['model'] = HNLA_comparison_df['model'].map(lambda x: MODEL_NAME_MAP.get(x, x))
+
+    doclaynet_comparison_df = pd.concat([load_results_to_dataframe('data/results/ppdoc/doclaynet'),
+    load_results_to_dataframe('data/results/torch/doclaynet')])
+
+    doclaynet_comparison_df['model'] = doclaynet_comparison_df['model'].map(lambda x: MODEL_NAME_MAP.get(x, x))
+    return HNLA_comparison_df, NCSE_comparison_df, doclaynet_comparison_df
 
 
 @app.cell
@@ -252,84 +265,25 @@ def _(NCSE_comparison_df):
 
 @app.cell
 def _(NCSE_comparison_df):
-    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='coverage').corr()
+    NCSE_comparison_df.drop(columns=['filename', 'model']).corr(method ='spearman')
     return
 
 
 @app.cell
-def _(NCSE_comparison_df):
-    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='overlap').corr()
+def _(HNLA_comparison_df):
+    HNLA_comparison_df.drop(columns=['filename', 'model']).corr(method ='spearman')
     return
 
 
 @app.cell
-def _(NCSE_comparison_df):
-    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='trespass').corr()
+def _(doclaynet_comparison_df):
+    doclaynet_comparison_df.drop(columns=['filename', 'model']).corr(method ='spearman')
     return
 
 
 @app.cell
-def _(NCSE_comparison_df):
-    NCSE_comparison_df.pivot_table(index='filename', columns='model', values='cot_score').corr()
-    return
-
-
-@app.cell
-def _(
-    NCSE_comparison_df,
-    aes,
-    element_blank,
-    facet_wrap,
-    geom_point,
-    ggplot,
-    labs,
-    pd,
-    theme,
-):
-
-
-    # Filter to PPDoc family only
-    ppd_df = NCSE_comparison_df[NCSE_comparison_df['model'].str.startswith('PPDoc')].copy()
-
-    metrics = ['cot_score','coverage', 'overlap', 'trespass']
-
-    dfs = []
-    for metric in metrics:
-        # Get rank order from PPDoc-L for this metric
-        rank_map = (
-            ppd_df[ppd_df['model'] == 'PPDoc-L']
-            .sort_values(metric, ascending=False)['filename']
-            .reset_index(drop=True)
-            .reset_index()  # index becomes the rank
-            .rename(columns={'index': f'rank_{metric}', 'filename': 'filename'})
-        )
-
-        df_metric = ppd_df[['filename', 'model', metric]].copy()
-        df_metric = df_metric.merge(rank_map, on='filename')
-        df_metric = df_metric.rename(columns={metric: 'value'})
-        df_metric['metric'] = metric
-        df_metric = df_metric.rename(columns={f'rank_{metric}': 'rank'})
-        dfs.append(df_metric)
-
-    plot_df = pd.concat(dfs, ignore_index=True)
-
-    (
-        ggplot(plot_df, aes(x='rank', y='value', color='model'))
-        + geom_point(size=2, alpha=0.8)
-        + facet_wrap('~metric', scales='free_y', ncol=1)
-        + labs(x='', y='', color='Model', title='PPDoc Model Family Comparison')
-        + theme(
-            axis_text_x=element_blank(),
-            axis_ticks_x=element_blank(),
-            panel_grid_major_x=element_blank(),
-        )
-    )
-    return (ppd_df,)
-
-
-@app.cell
-def _(ppd_df):
-    ppd_df.drop(columns = ['model', 'filename']).agg(['mean', 'median'])
+def _(NCSE_comparison_df, aes, geom_point, ggplot):
+    ggplot(NCSE_comparison_df, aes(x = 'cot_score', y = 'mean_iou', colour = 'model')) + geom_point()
     return
 
 

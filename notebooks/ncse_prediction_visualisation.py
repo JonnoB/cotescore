@@ -15,7 +15,7 @@ def _():
 
     from cot_score.visualisation import compute_cote_masks, visualize_cote_states
     from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
-    from cot_score.metrics import coverage, overlap, trespass, excess
+    from cot_score.metrics import cote_score, coverage, overlap, trespass, excess
 
     _data_dir = Path("data/file_predictions")
     image_dir = Path("data/ncse_images")
@@ -29,6 +29,7 @@ def _():
         boxes_to_gt_ssu_map,
         boxes_to_pred_masks,
         compute_cote_masks,
+        cote_score,
         coverage,
         excess,
         heron_df,
@@ -117,13 +118,10 @@ def _(
     boxes_to_gt_ssu_map,
     boxes_to_pred_masks,
     compute_cote_masks,
-    coverage,
-    excess,
+    cote_score,
     image_dir,
     np,
-    overlap,
     plt,
-    trespass,
     visualize_cote_states,
 ):
     def make_multi_model_figure(dfs, filename, panel_width=10, metrics_col_width=1.8, dpi=72):
@@ -175,10 +173,7 @@ def _(
 
             masks = compute_cote_masks(gt_ssu_map, pred_masks)
 
-            cov = coverage(gt_ssu_map, pred_masks)
-            ovl = overlap(gt_ssu_map, pred_masks)
-            tres = trespass(gt_ssu_map, pred_masks)
-            exc = excess(gt_ssu_map, pred_masks)
+            cot, cov, ovl, tres, exc = cote_score(gt_ssu_map, pred_masks)
 
             patches = visualize_cote_states(image_array, masks, img_ax)
             if len(patches) > len(best_patches):
@@ -188,11 +183,14 @@ def _(
 
             txt_ax.axis("off")
             metrics_text = (
+                f"CoTE: {cot:.3f}\n\n"
+                f"──────\n\n"
                 f"Cov:  {cov:.3f}\n\n"
                 f"Ovl:  {ovl:.3f}\n\n"
                 f"Tres: {tres:.3f}\n\n"
                 f"Exc:  {exc:.3f}\n\n"
                 f"──────\n\n"
+                f"Bboxes\n\n"
                 f"GT:   {len(gt_boxes)}\n\n"
                 f"Pred: {len(pred_boxes)}"
             )
@@ -229,7 +227,7 @@ def _(heron_df):
 def _(heron_df, make_multi_model_figure, ppdoc_l, yolo_df):
     import marimo as mo
 
-    _filename = 'EWJ_1858-08-01_page_5.png'
+    _filename = 'TTW_1868-05-16_page_5.png'
     _fig = make_multi_model_figure(
         [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)],
         _filename,
