@@ -17,7 +17,7 @@ def _():
     from plotnine import aes, geom_hline, geom_line, ggplot, labs, theme, theme_minimal, geom_vline
 
     # Import cote_score metrics for evaluation
-    from cot_score.metrics import mean_iou, iou, overlap, cote_score
+    from cot_score.metrics import mean_iou, iou, overlap, cote_score, f1
     from cot_score.visualisation import compute_cote_masks, visualize_cote_states
     from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 
@@ -28,6 +28,7 @@ def _():
         boxes_to_pred_masks,
         compute_cote_masks,
         cote_score,
+        f1,
         figure_path,
         iou,
         json,
@@ -411,12 +412,12 @@ def _(
             break
     latex_inner = "\n".join(latex_lines)
 
-    latex_table = f"""\\begin{{table}}
+    _latex_table = f"""\\begin{{table}}
     \\centering
     {latex_inner}    \\caption{{Caption}}
     \\end{{table}}"""
 
-    mo.md(f"### LaTeX Table Output\n```latex\n{latex_table}\n```")
+    mo.md(f"### LaTeX Table Output\n```latex\n{_latex_table}\n```")
     return
 
 
@@ -461,12 +462,9 @@ def _(
     cote_masks = compute_cote_masks(_gt_ssu_map, _pred_masks)
 
     # Visualize
-    fig = visualize_cote_states(
-        image_array,
-        cote_masks,
-        figsize=(12, 6.2),
-        dpi=300,
-    )
+    fig, ax = plt.subplots(figsize=(12, 5.2), dpi=300)
+    patches = visualize_cote_states(image_array, cote_masks, ax)
+    fig.legend(handles=patches, loc="lower center", ncol=max(len(patches), 1), framealpha=0.9)
     fig.savefig(figure_path / "example_cote_components", bbox_inches="tight", pad_inches=0)
     plt.show()
     return (gt_boxes,)
@@ -477,12 +475,11 @@ def _(
     boxes_to_gt_ssu_map,
     boxes_to_pred_masks,
     cote_score,
+    f1,
     ground_truth,
     gt_boxes,
-    iou,
     mean_iou,
     mo,
-    np,
     pred_boxes,
 ):
 
@@ -490,6 +487,7 @@ def _(
     img_hx = int(ground_truth["page"]["height"])
 
     mIoU = mean_iou(pred_boxes, gt_boxes)
+    f1_score = f1(pred_boxes, gt_boxes)
 
     # Convert to SSU map and pred masks (required by new cote_score API)
     _gt_tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
@@ -499,35 +497,26 @@ def _(
     # Compute COTe score (C - O - T)
     cote, C, O, T, E = cote_score(_gt_ssu_map, _pred_masks)
 
-    # Compute F1 score (IoU threshold = 0.5) using optimal Hungarian matching
-    from scipy.optimize import linear_sum_assignment
+    def _fb(val, perfect):
+        """Bold val if it matches the perfect target."""
+        s = f"{val:.2f}"
+        target = f"{perfect:.2f}"
+        return f"\\textbf{{{s}}}" if s == target else s
 
-    _iou_threshold = 0.5
-    _iou_matrix = np.array([[iou(p, g) for g in gt_boxes] for p in pred_boxes])
-    _row_ind, _col_ind = linear_sum_assignment(_iou_matrix, maximize=True)
-    _tp = sum(1 for r, c in zip(_row_ind, _col_ind) if _iou_matrix[r, c] >= _iou_threshold)
-    _precision = _tp / len(pred_boxes) if pred_boxes else 1.0
-    _recall = _tp / len(gt_boxes) if gt_boxes else 1.0
-    f1 = 2 * _precision * _recall / (_precision + _recall) if (_precision + _recall) > 0 else 0.0
-
-    cote_example_latex_table = f"""\\begin{{table}}[h]
-    \\centering
-    \\caption{{Performance metrics across different figures.}}
-    \\label{{tab:cote_example}}
-    \\begin{{tabular}}{{l|cc}}
-    \\hline
-    \\textbf{{Metric}} & \\textbf{{Perfect}} & \\textbf{{Fig 2}} \\\\
-    \\hline
-    \\textbf{{COTe}} & 1 & {cote:.3f} \\\\
-    \\textbf{{Coverage}} & 1 & {C:.3f} \\\\
-    \\textbf{{Overlap}} & 0 & {O:.3f} \\\\
-    \\textbf{{Trespass}} & 0 & {T:.3f} \\\\
-    \\textbf{{Excess}} & 0 & {E:.3f} \\\\
-    \\textbf{{Mean IoU}} & 1 & {mIoU:.3f} \\\\
-    \\textbf{{F1 (IoU$\\geq$0.5)}} & 1 & {f1:.3f} \\\\
-    \\hline
-    \\end{{tabular}}
-    \\end{{table}}"""
+    cote_example_latex_table = (
+        "\\begin{table}[h]\n"
+        "\\caption{Performance metrics across different figures, bold indicates perfect score}\n"
+        "\\label{tab:cote_example}\n"
+        "\\begin{tabular}{lcccccccc}\n"
+        "\\toprule\n"
+        " & COTe & Coverage & Overlap & Trespass & Excess & Mean IoU & F1 (IoU$\\geq$0.5) \\\\\n"
+        "\\midrule\n"
+        f"Perfect & 1.00 & 1.00 & 0.00 & 0.00 & 0.00 & 1.00 & 1.00 \\\\\n"
+        f"Fig 2 & {_fb(cote, 1)} & {_fb(C, 1)} & {_fb(O, 0)} & {_fb(T, 0)} & {_fb(E, 0)} & {_fb(mIoU, 1)} & {_fb(f1_score, 1)} \\\\\n"
+        "\\bottomrule\n"
+        "\\end{tabular}\n"
+        "\\end{table}"
+    )
 
     mo.md(f"### LaTeX Table Output\n```\n{cote_example_latex_table}\n```")
     return

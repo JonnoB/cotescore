@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 class SSUTagger:
     """Assigns SSU identifiers to TextRegions in a PAGE XML file."""
 
-    def __init__(self, page_xml_path: str) -> None:
+    def __init__(self, page_xml_path: str, unique_per_region: bool = False) -> None:
         self.page_xml_path = page_xml_path
+        self.unique_per_region = unique_per_region
 
     def _detect_namespace(self, root: ET.Element) -> str:
         """Extract the PAGE XML namespace URI from the root element tag."""
@@ -382,7 +383,10 @@ class SSUTagger:
                     }
                     structural_unit_id = self._assign_structural_unit(region_info, bins)
 
-                if structural_unit_id:
+                if self.unique_per_region:
+                    ssu_id = f"ssu_{region_id}"
+                    _register(region_id, ssu_id, group_id, structural_unit_id or group_id)
+                elif structural_unit_id:
                     ssu_id = f"ssu_{semantic_id}_{group_id}_{structural_unit_id}"
                     _register(region_id, ssu_id, group_id, structural_unit_id)
                 else:
@@ -396,7 +400,7 @@ class SSUTagger:
         for region_id in text_regions:
             if region_id not in grouped_region_ids:
                 semantic_id += 1
-                ssu_id = f"ssu_{semantic_id}_ungrouped"
+                ssu_id = f"ssu_{region_id}" if self.unique_per_region else f"ssu_{semantic_id}_ungrouped"
                 _register(region_id, ssu_id, "ungrouped", "ungrouped")
 
         return region_to_ssu, ssu_to_regions, ssu_metadata
@@ -469,6 +473,7 @@ def assign_ssu(
     page_xml_path: str,
     output_path: Optional[str] = None,
     modify_in_place: bool = False,
+    unique_per_region: bool = False,
 ) -> dict:
     """
     Assign Semantic Structural Units to TextRegions in a PAGE XML file.
@@ -488,4 +493,4 @@ def assign_ssu(
                 'region_types': list of str
               }
     """
-    return SSUTagger(page_xml_path).assign(output_path, modify_in_place)
+    return SSUTagger(page_xml_path, unique_per_region).assign(output_path, modify_in_place)

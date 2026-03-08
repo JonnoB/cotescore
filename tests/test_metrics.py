@@ -8,6 +8,7 @@ from cot_score.metrics import (
     overlap,
     iou,
     mean_iou,
+    f1,
     trespass,
     excess,
     cote_score as cot_score,
@@ -466,6 +467,92 @@ class TestMeanIOU:
         # When both are empty, mean_iou is 1.0
         assert abs(result - 1.0) < TOLERANCE
         # assert abs(result - reference) < TOLERANCE # Not valid for raw overlap comparison
+
+
+class TestF1:
+    """Tests for the f1 metric."""
+
+    def test_f1_perfect_match(self):
+        """Perfect predictions give F1 of 1.0."""
+        pred = [
+            {"x": 0, "y": 0, "width": 100, "height": 100},
+            {"x": 200, "y": 200, "width": 50, "height": 50},
+        ]
+        gt = [
+            {"x": 0, "y": 0, "width": 100, "height": 100},
+            {"x": 200, "y": 200, "width": 50, "height": 50},
+        ]
+        assert abs(f1(pred, gt) - 1.0) < TOLERANCE
+
+    def test_f1_no_overlap(self):
+        """Predictions nowhere near GT give F1 of 0.0."""
+        pred = [{"x": 0, "y": 0, "width": 10, "height": 10}]
+        gt = [{"x": 500, "y": 500, "width": 10, "height": 10}]
+        assert abs(f1(pred, gt) - 0.0) < TOLERANCE
+
+    def test_f1_empty_predictions(self):
+        """No predictions with GT present gives F1 of 0.0."""
+        gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
+        assert abs(f1([], gt) - 0.0) < TOLERANCE
+
+    def test_f1_empty_ground_truth(self):
+        """Predictions with no GT gives F1 of 0.0."""
+        pred = [{"x": 0, "y": 0, "width": 100, "height": 100}]
+        assert abs(f1(pred, []) - 0.0) < TOLERANCE
+
+    def test_f1_both_empty(self):
+        """Both empty gives F1 of 1.0."""
+        assert abs(f1([], []) - 1.0) < TOLERANCE
+
+    def test_f1_one_tp_one_fp(self):
+        """One matched pred (TP) and one unmatched pred (FP): precision=0.5, recall=1.0, F1=2/3."""
+        pred = [
+            {"x": 0, "y": 0, "width": 100, "height": 100},   # matches gt[0]
+            {"x": 500, "y": 500, "width": 10, "height": 10},  # FP
+        ]
+        gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
+        expected = 2 * (0.5 * 1.0) / (0.5 + 1.0)  # 2/3
+        assert abs(f1(pred, gt) - expected) < TOLERANCE
+
+    def test_f1_one_tp_one_fn(self):
+        """One matched GT (TP) and one unmatched GT (FN): precision=1.0, recall=0.5, F1=2/3."""
+        pred = [{"x": 0, "y": 0, "width": 100, "height": 100}]
+        gt = [
+            {"x": 0, "y": 0, "width": 100, "height": 100},    # matched
+            {"x": 500, "y": 500, "width": 50, "height": 50},   # FN
+        ]
+        expected = 2 * (1.0 * 0.5) / (1.0 + 0.5)  # 2/3
+        assert abs(f1(pred, gt) - expected) < TOLERANCE
+
+    def test_f1_below_threshold_counts_as_miss(self):
+        """A prediction with IoU just below 0.5 should not count as a TP."""
+        # Two boxes overlapping slightly less than 50%
+        # Box A: [0,0,100,100], Box B: [60,0,100,100] -> intersection=40x100=4000, union=16000 -> IoU=0.25
+        pred = [{"x": 60, "y": 0, "width": 100, "height": 100}]
+        gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
+        assert f1(pred, gt) < 0.5  # Should be 0.0 (no TP)
+
+    def test_f1_each_pred_used_once(self):
+        """A single prediction cannot match two GT boxes (greedy exclusive matching)."""
+        pred = [{"x": 0, "y": 0, "width": 100, "height": 100}]
+        gt = [
+            {"x": 0, "y": 0, "width": 100, "height": 100},
+            {"x": 0, "y": 0, "width": 100, "height": 100},
+        ]
+        # TP=1, FN=1, FP=0 -> precision=1.0, recall=0.5, F1=2/3
+        expected = 2 * (1.0 * 0.5) / (1.0 + 0.5)
+        assert abs(f1(pred, gt) - expected) < TOLERANCE
+
+    def test_f1_custom_threshold(self):
+        """A stricter threshold (0.75) rejects matches that pass at 0.5."""
+        # IoU ~0.67 between 100x100 and shifted 50px box
+        # intersection = 50x100=5000, union=15000, IoU=1/3 ... let's use overlapping boxes
+        # box1=[0,0,100,100], box2=[0,0,100,75]: intersection=7500, union=10000, IoU=0.75 exactly
+        pred = [{"x": 0, "y": 0, "width": 100, "height": 75}]
+        gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
+        assert abs(f1(pred, gt, threshold=0.5) - 1.0) < TOLERANCE   # passes at 0.5
+        assert abs(f1(pred, gt, threshold=0.75) - 1.0) < TOLERANCE  # exactly at 0.75
+        assert abs(f1(pred, gt, threshold=0.76) - 0.0) < TOLERANCE  # fails above 0.75
 
 
 class TestVectorizedCorrectness:

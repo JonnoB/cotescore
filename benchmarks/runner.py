@@ -27,6 +27,7 @@ from cot_score.metrics import (
     excess,
     cote_score as cot_score,
     mean_iou,
+    f1,
 )
 from cot_score.map_metric import MAPMetric
 from PIL import Image
@@ -67,6 +68,8 @@ def _compute_image_metrics(
             continue
         elif metric_name == "mean_iou":
             score = mean_iou(predictions, ground_truth)
+        elif metric_name == "f1_50":
+            score = f1(predictions, ground_truth, threshold=0.5)
         elif metric_name == "coverage":
             score = coverage(gt_ssu_map, pred_masks)
         elif metric_name == "overlap":
@@ -198,7 +201,7 @@ class BenchmarkRunner:
             Dictionary containing evaluation results
         """
         if metrics is None:
-            metrics = ["mean_iou", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
+            metrics = ["mean_iou", "f1_50", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
 
         if self._dataset is None:
             logger.info(f"Loading {self.dataset_name.upper()} dataset from {self.dataset_path}")
@@ -342,7 +345,7 @@ class BenchmarkRunner:
             print(f"  mAP@75         : {metrics['map_75']:.4f}")
             print("-" * 30)
 
-        for name in ["mean_iou", "coverage", "overlap", "trespass"]:
+        for name in ["mean_iou", "f1_50", "coverage", "overlap", "trespass"]:
             if name in metrics:
                 print(f"  {name.upper():15s}: {metrics[name]:.4f}")
 

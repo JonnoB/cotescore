@@ -12,10 +12,12 @@ def _():
     import numpy as np
     import pandas as pd
     from PIL import Image
+    import marimo as mo
+
 
     from cot_score.visualisation import compute_cote_masks, visualize_cote_states
     from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
-    from cot_score.metrics import cote_score, coverage, overlap, trespass, excess
+    from cot_score.metrics import cote_score, coverage, overlap, trespass, excess, mean_iou, f1
 
     _data_dir = Path("data/file_predictions")
     image_dir = Path("data/ncse_images")
@@ -32,10 +34,14 @@ def _():
         cote_score,
         coverage,
         excess,
+        f1,
         heron_df,
         image_dir,
+        mean_iou,
+        mo,
         np,
         overlap,
+        pd,
         plt,
         ppdoc_l,
         trespass,
@@ -124,7 +130,7 @@ def _(
     plt,
     visualize_cote_states,
 ):
-    def make_multi_model_figure(dfs, filename, panel_width=10, metrics_col_width=1.8, dpi=72):
+    def make_multi_model_figure(dfs, filename, panel_width=10, metrics_col_width=1.8, dpi=72, show_metrics=True):
         """Render one image with all models side-by-side in a single figure.
 
         Args:
@@ -133,6 +139,7 @@ def _(
             panel_width: Width in inches of each image panel.
             metrics_col_width: Width in inches of the metrics column beside each panel.
             dpi: Figure resolution.
+            show_metrics: If False, omit the metrics text columns (improves H:W ratio for publication).
 
         Returns:
             matplotlib Figure with one panel per model, shared legend and title.
@@ -143,21 +150,30 @@ def _(
         panel_height = panel_width * (_ih / _iw)
 
         n = len(dfs)
-        fig_width = n * (panel_width + metrics_col_width)
+        if show_metrics:
+            fig_width = n * (panel_width + metrics_col_width)
+        else:
+            fig_width = n * panel_width
         # constrained_layout automatically reserves space for suptitle and legend
         fig = plt.figure(figsize=(fig_width, panel_height), dpi=dpi, layout="constrained")
 
-        # Alternating columns: [image, metrics, image, metrics, ...]
-        gs = fig.add_gridspec(
-            1, n * 2,
-            width_ratios=[panel_width, metrics_col_width] * n,
-            wspace=0.02,
-        )
+        if show_metrics:
+            # Alternating columns: [image, metrics, image, metrics, ...]
+            gs = fig.add_gridspec(
+                1, n * 2,
+                width_ratios=[panel_width, metrics_col_width] * n,
+                wspace=0.02,
+            )
+        else:
+            gs = fig.add_gridspec(1, n, wspace=0.02)
 
         best_patches = []
         for i, (model_name, df) in enumerate(dfs):
-            img_ax = fig.add_subplot(gs[0, i * 2])
-            txt_ax = fig.add_subplot(gs[0, i * 2 + 1])
+            if show_metrics:
+                img_ax = fig.add_subplot(gs[0, i * 2])
+                txt_ax = fig.add_subplot(gs[0, i * 2 + 1])
+            else:
+                img_ax = fig.add_subplot(gs[0, i])
 
             img_df = df[df.filename == filename]
             gt_boxes = img_df[img_df.source == "gt"].to_dict("records")
@@ -181,27 +197,28 @@ def _(
 
             img_ax.set_title(model_name, fontsize=20, pad=4)
 
-            txt_ax.axis("off")
-            metrics_text = (
-                f"CoTE: {cot:.3f}\n\n"
-                f"──────\n\n"
-                f"Cov:  {cov:.3f}\n\n"
-                f"Ovl:  {ovl:.3f}\n\n"
-                f"Tres: {tres:.3f}\n\n"
-                f"Exc:  {exc:.3f}\n\n"
-                f"──────\n\n"
-                f"Bboxes\n\n"
-                f"GT:   {len(gt_boxes)}\n\n"
-                f"Pred: {len(pred_boxes)}"
-            )
-            txt_ax.text(
-                0.1, 0.5, metrics_text,
-                transform=txt_ax.transAxes,
-                fontsize=20,
-                verticalalignment="center",
-                horizontalalignment="left",
-                fontfamily="monospace",
-            )
+            if show_metrics:
+                txt_ax.axis("off")
+                metrics_text = (
+                    f"CoTE: {cot:.3f}\n\n"
+                    f"──────\n\n"
+                    f"Cov:  {cov:.3f}\n\n"
+                    f"Ovl:  {ovl:.3f}\n\n"
+                    f"Tres: {tres:.3f}\n\n"
+                    f"Exc:  {exc:.3f}\n\n"
+                    f"──────\n\n"
+                    f"Bboxes\n\n"
+                    f"GT:   {len(gt_boxes)}\n\n"
+                    f"Pred: {len(pred_boxes)}"
+                )
+                txt_ax.text(
+                    0.1, 0.5, metrics_text,
+                    transform=txt_ax.transAxes,
+                    fontsize=20,
+                    verticalalignment="center",
+                    horizontalalignment="left",
+                    fontfamily="monospace",
+                )
 
         fig.suptitle(f"Model parsing performance on {filename[0:-4]}", fontsize=25)
         fig.legend(
@@ -224,15 +241,100 @@ def _(heron_df):
 
 
 @app.cell
-def _(heron_df, make_multi_model_figure, ppdoc_l, yolo_df):
-    import marimo as mo
+def _(heron_df, make_multi_model_figure, mo, ppdoc_l, yolo_df):
 
     _filename = 'TTW_1868-05-16_page_5.png'
     _fig = make_multi_model_figure(
         [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)],
         _filename,
+        show_metrics=False,
     )
     mo.as_html(_fig)
+    return
+
+
+@app.cell
+def _(
+    Image,
+    boxes_to_gt_ssu_map,
+    boxes_to_pred_masks,
+    cote_score,
+    f1,
+    heron_df,
+    image_dir,
+    mean_iou,
+    mo,
+    np,
+    pd,
+    ppdoc_l,
+    yolo_df,
+):
+
+    _filename = 'TTW_1868-05-16_page_5.png'
+    _dfs = [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)]
+
+    _rows = []
+    for _model_name, _df in _dfs:
+        _img_df = _df[_df.filename == _filename]
+        _gt_boxes = _img_df[_img_df.source == "gt"].to_dict("records")
+        _pred_boxes = _img_df[_img_df.source == "pred"].to_dict("records")
+
+        _image_array = np.array(Image.open(image_dir / _filename).convert("RGB"))
+        _actual_h, _actual_w = _image_array.shape[:2]
+        _csv_w = int(_img_df.image_width.iloc[0])
+        _scale = _actual_w / _csv_w
+
+        _gt_ssu_map = boxes_to_gt_ssu_map(_gt_boxes, _actual_w, _actual_h, scale=_scale)
+        _pred_masks = boxes_to_pred_masks(_pred_boxes, _actual_w, _actual_h, scale=_scale)
+
+        _cot, _cov, _ovl, _tres, _exc = cote_score(_gt_ssu_map, _pred_masks)
+        _miou = mean_iou(_pred_boxes, _gt_boxes)
+        _f1 = f1(_pred_boxes, _gt_boxes)
+
+        _rows.append({
+            "Model": _model_name,
+            "CoTE": _cot,
+            "Coverage": _cov,
+            "Overlap": _ovl,
+            "Trespass": _tres,
+            "Excess": _exc,
+            "mIoU": _miou,
+            "F1": _f1,
+        })
+
+    _metrics_df = pd.DataFrame(_rows).set_index("Model")
+
+    # best direction per column: True = higher is better, False = lower is better
+    _best_max = {"CoTE": True, "Coverage": True, "Overlap": False, "Trespass": False, "Excess": False, "mIoU": True, "F1": True}
+
+    def _fmt(col, val):
+        best_fn = max if _best_max[col] else min
+        best_val = best_fn(_metrics_df[col])
+        s = f"{val:.2f}"
+        return f"\\textbf{{{s}}}" if val == best_val else s
+
+    _cols = list(_metrics_df.columns)
+    _col_header = " & ".join(_cols)
+    _rows_latex = []
+    for _model, _row in _metrics_df.iterrows():
+        _cells = " & ".join(_fmt(c, _row[c]) for c in _cols)
+        _rows_latex.append(f"{_model} & {_cells} \\\\")
+
+    _latex = (
+        "\\begin{table}\n"
+        f"\\caption{{Per-model metrics for \\texttt{{{_filename[:-4]}}}, bold is best in column}}\n"
+        f"\\label{{tab:model-metrics}}\n"
+        f"\\begin{{tabular}}{{l{'l' * len(_cols)}}}\n"
+        "\\toprule\n"
+        f" & {_col_header} \\\\\n"
+        "\\midrule\n"
+        + "\n".join(_rows_latex) + "\n"
+        "\\bottomrule\n"
+        "\\end{tabular}\n"
+        "\\end{table}"
+    )
+    print(_latex)
+    mo.as_html(_metrics_df.style.format("{:.2f}"))
     return
 
 
@@ -251,6 +353,7 @@ def _(Path, heron_df, make_multi_model_figure, plt, ppdoc_l, yolo_df):
         _fig = make_multi_model_figure(
             [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)],
             _filename,
+            show_metrics=False,
             dpi=72,
         )
         _fig.savefig(_output_dir / _filename, bbox_inches="tight", dpi=72, facecolor="white")

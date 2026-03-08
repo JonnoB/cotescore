@@ -116,6 +116,50 @@ def iou(box1: BBox, box2: BBox) -> float:
     return intersection / union if union > 0 else 0.0
 
 
+def f1(predicted_regions: List[BBox], ground_truth_regions: List[BBox], threshold: float = 0.5) -> float:
+    """
+    Calculate F1 score at a given IoU threshold (default 0.50).
+
+    Each ground truth box is matched to the best-IoU prediction. A match is a
+    true positive (TP) if IoU >= threshold. Unmatched GT boxes are false negatives
+    (FN); unmatched predictions are false positives (FP).
+
+    Args:
+        predicted_regions: List of predicted bounding boxes.
+        ground_truth_regions: List of ground truth bounding boxes.
+        threshold: IoU threshold for a match to count as a true positive (default 0.5).
+
+    Returns:
+        F1 score in range [0.0, 1.0].
+    """
+    if not ground_truth_regions and not predicted_regions:
+        return 1.0
+    if not ground_truth_regions or not predicted_regions:
+        return 0.0
+
+    matched_preds = set()
+    tp = 0
+    for gt_box in ground_truth_regions:
+        best_iou, best_idx = 0.0, -1
+        for j, pred_box in enumerate(predicted_regions):
+            if j in matched_preds:
+                continue
+            score = iou(pred_box, gt_box)
+            if score > best_iou:
+                best_iou, best_idx = score, j
+        if best_iou >= threshold:
+            tp += 1
+            matched_preds.add(best_idx)
+
+    fp = len(predicted_regions) - len(matched_preds)
+    fn = len(ground_truth_regions) - tp
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+
+
 def mean_iou(predicted_regions: List[BBox], ground_truth_regions: List[BBox]) -> float:
     """
     Calculate mean Intersection over Union (IoU) across ground truth boxes.
@@ -366,6 +410,7 @@ __all__ = [
     "overlap",
     "iou",
     "mean_iou",
+    "f1",
     "trespass",
     "excess",
     "cote_score",
