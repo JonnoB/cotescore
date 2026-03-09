@@ -40,9 +40,13 @@ def _(Path):
     doclaynet_json = 'doclaynet/benchmark_all_results.json'
     HNLA_json = 'hnla2013/benchmark_all_results.json'
     NCSE_json = 'ncse/benchmark_all_results.json'
+    HNLA_nosssu_json = 'hnla2013_nossu/benchmark_all_results.json'
+    NCSE_nossu_json = 'ncse_nossu/benchmark_all_results.json'
     return (
         HNLA_json,
+        HNLA_nosssu_json,
         NCSE_json,
+        NCSE_nossu_json,
         doclaynet_json,
         ppdoc_results_folder,
         torch_results_folder,
@@ -118,11 +122,34 @@ def _(json, pd, ppdoc_results_folder, torch_results_folder):
 
 
 @app.cell
-def _(HNLA_json, NCSE_json, create_results_table, doclaynet_json):
+def _(
+    HNLA_json,
+    HNLA_nosssu_json,
+    NCSE_json,
+    NCSE_nossu_json,
+    create_results_table,
+    doclaynet_json,
+):
     doclaynet_df = create_results_table(doclaynet_json)
     HNLA2013_df = create_results_table(HNLA_json)
     NCSE_df = create_results_table(NCSE_json)
-    return HNLA2013_df, NCSE_df, doclaynet_df
+
+
+    HNLA2013_nossu_df = create_results_table(HNLA_nosssu_json)
+    NCSE_nossu_df = create_results_table(NCSE_nossu_json)
+    return HNLA2013_df, HNLA2013_nossu_df, NCSE_df, NCSE_nossu_df, doclaynet_df
+
+
+@app.cell
+def _(HNLA2013_nossu_df):
+    HNLA2013_nossu_df
+    return
+
+
+@app.cell
+def _(NCSE_nossu_df):
+    NCSE_nossu_df
+    return
 
 
 @app.cell
@@ -236,7 +263,12 @@ def _(load_results_to_dataframe, pd):
     load_results_to_dataframe('data/results/torch/doclaynet')])
 
     doclaynet_comparison_df['model'] = doclaynet_comparison_df['model'].map(lambda x: MODEL_NAME_MAP.get(x, x))
-    return HNLA_comparison_df, NCSE_comparison_df, doclaynet_comparison_df
+    return (
+        HNLA_comparison_df,
+        MODEL_NAME_MAP,
+        NCSE_comparison_df,
+        doclaynet_comparison_df,
+    )
 
 
 @app.cell
@@ -284,6 +316,40 @@ def _(doclaynet_comparison_df):
 @app.cell
 def _(NCSE_comparison_df, aes, geom_point, ggplot):
     ggplot(NCSE_comparison_df, aes(x = 'cot_score', y = 'mean_iou', colour = 'model')) + geom_point()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # No ssu
+    """)
+    return
+
+
+@app.cell
+def _(MODEL_NAME_MAP, load_results_to_dataframe, pd):
+    NCSE_nossu_comparison_df = pd.concat([load_results_to_dataframe('data/results/ppdoc/ncse_nossu'),
+    load_results_to_dataframe('data/results/torch/ncse_nossu')])
+
+    NCSE_nossu_comparison_df['model'] = NCSE_nossu_comparison_df['model'].map(lambda x: MODEL_NAME_MAP.get(x, x))
+    return (NCSE_nossu_comparison_df,)
+
+
+@app.cell
+def _(NCSE_nossu_comparison_df):
+    NCSE_nossu_comparison_df.drop(columns=['filename', 'model']).corr()
+    return
+
+
+@app.cell
+def _(MODEL_NAME_MAP, load_results_to_dataframe, pd):
+    HNLA_nossu_comparison_df = pd.concat([load_results_to_dataframe('data/results/ppdoc/hnla2013_nossu'),
+    load_results_to_dataframe('data/results/torch/hnla2013_nossu')])
+
+    HNLA_nossu_comparison_df['model'] = HNLA_nossu_comparison_df['model'].map(lambda x: MODEL_NAME_MAP.get(x, x))
+
+    HNLA_nossu_comparison_df.drop(columns=['filename', 'model']).corr()
     return
 
 
