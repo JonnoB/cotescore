@@ -12,7 +12,7 @@ def _():
     import matplotlib.pyplot as plt
     import marimo as mo
     from string import ascii_uppercase
-    from cot_score.metrics import jensen_shannon_divergence
+    from cotescore.metrics import jensen_shannon_divergence
 
     return ascii_uppercase, jensen_shannon_divergence, np, pd, plt, sns
 

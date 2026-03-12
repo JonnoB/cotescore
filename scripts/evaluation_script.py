@@ -15,7 +15,7 @@ import logging
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from benchmarks.runner import BenchmarkRunner
-from cot_score.dataset import NCSEDataset
+from cotescore.dataset import NCSEDataset
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(name)s - %(message)s")
 logger = logging.getLogger(__name__)

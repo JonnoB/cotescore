@@ -43,13 +43,13 @@ from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
-from cot_score._core import (
+from cotescore._core import (
     _check_gt_map,
     _ms_mask,
     _area_s,
     _owner_ssu_id,
 )
-from cot_score.types import ClassCOTeResult, Label, MaskInstance
+from cotescore.types import ClassCOTeResult, Label, MaskInstance
 
 
 # ---------------------------------------------------------------------------

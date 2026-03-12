@@ -3,7 +3,7 @@ import matplotlib.patches as patches
 import os
 
 # Import private helpers to reuse logic
-from cot_score.metrics import (
+from cotescore.metrics import (
     coverage,
     overlap,
     trespass,
@@ -11,7 +11,7 @@ from cot_score.metrics import (
     cote_score,
 )
 
-from cot_score.adapters import (
+from cotescore.adapters import (
     calculate_union_area_from_boxes as _calculate_union_area_from_boxes,
     get_intersection_box as _get_intersection_box,
     calculate_intersection_area as _calculate_intersection_area,

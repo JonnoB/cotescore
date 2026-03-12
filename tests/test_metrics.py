@@ -2,8 +2,8 @@
 
 import pytest
 import numpy as np
-from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cot_score.metrics import (
+from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.metrics import (
     coverage,
     overlap,
     iou,

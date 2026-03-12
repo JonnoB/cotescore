@@ -1,5 +1,5 @@
 """
-Visualisation utilities for COTe (Coverage, Overlap, Trespass) evaluation.
+Visualisation utilities for COTe (Coverage, Overlap, Trespass, and Excess) evaluation.
 
 Provides pixel-level mask computation and matplotlib-based rendering of
 COTe states as coloured overlays on document images.
@@ -11,14 +11,14 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 
-from cot_score._core import (
+from cotescore._core import (
     _as_pred_masks,
     _check_gt_map,
     _compose_pred_count,
     _ms_mask,
     _owner_ssu_id,
 )
-from cot_score.types import MaskInstance
+from cotescore.types import MaskInstance
 
 # RGBA colour palette for each COTe state
 COTE_COLORS: Dict[str, Tuple[float, float, float, float]] = {

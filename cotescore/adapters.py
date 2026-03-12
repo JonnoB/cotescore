@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from cot_score.types import Label
+from cotescore.types import Label
 
 
 BBox = Dict[str, Any]

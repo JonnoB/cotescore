@@ -17,9 +17,9 @@ def _():
     from plotnine import aes, geom_hline, geom_line, ggplot, labs, theme, theme_minimal, geom_vline
 
     # Import cote_score metrics for evaluation
-    from cot_score.metrics import mean_iou, iou, overlap, cote_score, f1
-    from cot_score.visualisation import compute_cote_masks, visualize_cote_states
-    from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+    from cotescore.metrics import mean_iou, iou, overlap, cote_score, f1
+    from cotescore.visualisation import compute_cote_masks, visualize_cote_states
+    from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 
     figure_path = Path("data/figures")
     return (

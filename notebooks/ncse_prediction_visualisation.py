@@ -15,9 +15,9 @@ def _():
     import marimo as mo
 
 
-    from cot_score.visualisation import compute_cote_masks, visualize_cote_states
-    from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
-    from cot_score.metrics import cote_score, coverage, overlap, trespass, excess, mean_iou, f1
+    from cotescore.visualisation import compute_cote_masks, visualize_cote_states
+    from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+    from cotescore.metrics import cote_score, coverage, overlap, trespass, excess, mean_iou, f1
 
     _data_dir = Path("data/file_predictions")
     image_dir = Path("data/ncse_images")

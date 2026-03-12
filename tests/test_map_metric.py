@@ -6,7 +6,7 @@ import pytest
 
 try:
     import torch
-    from cot_score.map_metric import MAPMetric
+    from cotescore.map_metric import MAPMetric
 
     TORCH_AVAILABLE = True
 except ImportError:

@@ -18,9 +18,9 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
-from cot_score.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset
-from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cot_score.metrics import (
+from cotescore.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset
+from cotescore.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.metrics import (
     coverage,
     overlap,
     trespass,
@@ -29,7 +29,7 @@ from cot_score.metrics import (
     mean_iou,
     f1,
 )
-from cot_score.map_metric import MAPMetric
+from cotescore.map_metric import MAPMetric
 from PIL import Image
 
 logger = logging.getLogger(__name__)

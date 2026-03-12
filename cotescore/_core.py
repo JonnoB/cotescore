@@ -10,7 +10,7 @@ from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from cot_score.types import MaskInstance
+from cotescore.types import MaskInstance
 
 
 def _as_pred_masks(preds: Sequence[Union[np.ndarray, MaskInstance]]) -> List[np.ndarray]:

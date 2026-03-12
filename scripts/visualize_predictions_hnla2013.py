@@ -18,9 +18,9 @@ sys.path.insert(0, str(project_root))
 
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
-from cot_score.dataset import HNLA2013Dataset
-from cot_score.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cot_score.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
+from cotescore.dataset import HNLA2013Dataset
+from cotescore.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
 
 EVAL_MAX_DIM = 2000
 

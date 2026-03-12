@@ -3,8 +3,8 @@
 import pytest
 import numpy as np
 
-from cot_score.class_metrics import coverage_matrix, overlap_matrix, trespass_matrix, cote_class
-from cot_score.types import MaskInstance, ClassCOTeResult
+from cotescore.class_metrics import coverage_matrix, overlap_matrix, trespass_matrix, cote_class
+from cotescore.types import MaskInstance, ClassCOTeResult
 
 
 TOLERANCE = 1e-9

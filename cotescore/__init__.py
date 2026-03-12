@@ -1,7 +1,8 @@
 """
-COT-Score: Coverage and Overlap Testing for Document Layout Analysis
+COTe-Score: Coverage, Overlap, Trespass, Excess
 
-A library for evaluating document layout analysis models using Coverage and Overlap metrics.
+A library for evaluating document layout analysis models using Coverage, Overlap, 
+Trespass, and Excess metrics.
 """
 
 __version__ = "0.1.0"

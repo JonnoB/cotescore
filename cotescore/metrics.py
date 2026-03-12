@@ -14,9 +14,9 @@ from typing import List, Dict, Any, Union, Tuple, Optional, Iterable, Sequence, 
 import numpy as np
 import collections
 
-from cot_score.types import MaskInstance
-from cot_score.adapters import calculate_intersection_area as _calculate_intersection_area
-from cot_score._core import (
+from cotescore.types import MaskInstance
+from cotescore.adapters import calculate_intersection_area as _calculate_intersection_area
+from cotescore._core import (
     _as_pred_masks,
     _check_gt_map,
     _ms_mask,

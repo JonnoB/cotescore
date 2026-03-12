@@ -20,8 +20,8 @@ sys.path.insert(0, str(project_root))
 
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
-from cot_score.dataset import NCSEDataset
-from cot_score.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
+from cotescore.dataset import NCSEDataset
+from cotescore.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
 
 COLORS = {
     "ground_truth": (0, 255, 0),

@@ -23,7 +23,7 @@ from tqdm import tqdm
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from cot_score.dataset import NCSEDataset
+from cotescore.dataset import NCSEDataset
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

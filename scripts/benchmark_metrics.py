@@ -17,8 +17,8 @@ from pathlib import Path
 # Add parent directory to path to import cot_score
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cot_score import metrics
-from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore import metrics
+from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
 from tests import reference_metrics
 
 

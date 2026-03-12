@@ -6,8 +6,8 @@ import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for tests
 import matplotlib.figure
 
-from cot_score.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cot_score.visualisation import compute_cote_masks, visualize_cote_states
+from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.visualisation import compute_cote_masks, visualize_cote_states
 
 
 # ---------------------------------------------------------------------------
