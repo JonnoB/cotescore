@@ -11,7 +11,6 @@ def _():
 
     import matplotlib.pyplot as plt
     import numpy as np
-    import json
     import pandas as pd
 
     from plotnine import aes, geom_hline, geom_line, ggplot, labs, theme, theme_minimal, geom_vline
@@ -23,7 +22,6 @@ def _():
 
     figure_path = Path("data/figures")
     return (
-        Path,
         boxes_to_gt_ssu_map,
         boxes_to_pred_masks,
         compute_cote_masks,
@@ -31,7 +29,6 @@ def _():
         f1,
         figure_path,
         iou,
-        json,
         mean_iou,
         np,
         pd,
@@ -48,19 +45,11 @@ def _():
 
 
 @app.cell
-def _(Path, json, np):
-    """Load the pre-generated image and ground truth from disk."""
-    from PIL import Image as _Image
+def _():
+    """Load the pre-generated image and ground truth from the bundled example."""
+    from cotescore import load_limerick_example
 
-    _data_dir = Path("data/limerick_case_study")
-
-    # Load image
-    _img = _Image.open(_data_dir / "limerick_image.png")
-    image_array = np.array(_img)
-
-    # Load ground truth (simplified format: page + stories with lines)
-    with open(_data_dir / "ground_truth.json", "r") as _f:
-        ground_truth = json.load(_f)
+    ground_truth, image_array = load_limerick_example()
 
     print(f"Loaded image shape: {image_array.shape}")
     print(f"Loaded GT with {len(ground_truth['stories'])} stories")

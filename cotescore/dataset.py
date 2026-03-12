@@ -5,12 +5,14 @@ This module provides functionality for loading and preprocessing the
 NCSE v2.0 Dataset of OCR-Processed 19th Century English Newspapers.
 """
 
+from importlib.resources import files
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import re
 import json
 import logging
 import xml.etree.ElementTree as ET
+import numpy as np
 import pandas as pd
 from PIL import Image
 
@@ -641,3 +643,15 @@ class HNLA2013Dataset:
         if idx < 0 or idx >= len(self.images):
             raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
         return self.annotations_by_image[self.images[idx]]
+
+
+def load_limerick_example() -> Tuple[dict, np.ndarray]:
+    """Load the bundled limerick case study example.
+
+    Returns:
+        Tuple of (ground_truth dict, image as numpy array).
+    """
+    pkg = files("cotescore") / "data" / "limerick_case_study"
+    ground_truth = json.loads((pkg / "ground_truth.json").read_text())
+    image = np.array(Image.open(pkg / "limerick_image.png"))
+    return ground_truth, image

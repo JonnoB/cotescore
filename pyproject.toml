@@ -7,7 +7,7 @@ name = "cotescore"
 version = "0.1.0"
 description = "Coverage and Overlap, Trespass and Excess (COTe) Testing for Document Layout Analysis"
 readme = "README.md"
-requires-python = ">=3.8.1"
+requires-python = ">=3.9"
 authors = [
     {name = "Jonathan Bourne"},
     {name = "Mwiza Simbeye"}
@@ -16,10 +16,10 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
@@ -81,6 +81,9 @@ Repository = "https://github.com/JonnoB/cot_analysis"
 
 [tool.setuptools]
 packages = ["cotescore", "models", "benchmarks"]
+
+[tool.setuptools.package-data]
+cotescore = ["data/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
