@@ -5,13 +5,6 @@
 [![PyPI version](https://badge.fury.io/py/cotescore.svg)](https://badge.fury.io/py/cotescore)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
----
-
-![COTe pixel-state visualisation showing Coverage, Overlap, Trespass and Excess regions](docs/example_cote_components.png)
-
-*COTe pixel-state visualisation: each pixel in the document is classified as Coverage (green), Overlap (yellow), Trespass (red), Trespass AND Overlap (purple), or Excess (blue). Produced by `notebooks/limerick_analysis.py`.*
-
----
 
 ## Overview
 
@@ -77,6 +70,13 @@ preds = boxes_to_pred_masks(pred_boxes, w, h, scale=scale)
 cote, C, O, T, E = cote_score(gt_ssu_map, preds)
 print(f"COTe={cote:.3f}  C={C:.3f}  O={O:.3f}  T={T:.3f}  E={E:.3f}")
 ```
+---
+
+![COTe pixel-state visualisation showing Coverage, Overlap, Trespass and Excess regions](docs/example_cote_components.png)
+
+*COTe pixel-state visualisation: each pixel in the document is classified as Coverage (green), Overlap (yellow), Trespass (red), Trespass AND Overlap (purple), or Excess (blue). Produced by `notebooks/limerick_analysis.py`.*
+
+---
 
 See [`notebooks/limerick_analysis.py`](notebooks/limerick_analysis.py) for a full worked example comparing COTe against F1 and mean IoU at different granularity levels.
 
