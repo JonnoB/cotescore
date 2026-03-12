@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 import matplotlib
+
 matplotlib.use("Agg")  # non-interactive backend for tests
 import matplotlib.figure
 
@@ -35,6 +36,7 @@ def _sum_masks(masks):
 # ---------------------------------------------------------------------------
 # compute_cote_masks
 # ---------------------------------------------------------------------------
+
 
 class TestComputeCoteMasks:
 
@@ -80,7 +82,7 @@ class TestComputeCoteMasks:
         """Pred assigned to GT-A spills into GT-B → trespass pixels in GT-B."""
         # GT-A: left half, GT-B: right half
         gt = [
-            {"x": 0, "y": 0, "width": 50, "height": 100},   # ssu_id=1
+            {"x": 0, "y": 0, "width": 50, "height": 100},  # ssu_id=1
             {"x": 50, "y": 0, "width": 50, "height": 100},  # ssu_id=2
         ]
         # Pred mostly in GT-A but extends into GT-B
@@ -100,8 +102,8 @@ class TestComputeCoteMasks:
 
         masks = compute_cote_masks(_gt_map(gt), _pred_masks(pred))
 
-        assert np.sum(masks["coverage"]) == 25 * 50   # overlap with GT
-        assert np.sum(masks["excess"]) == 25 * 50      # outside GT
+        assert np.sum(masks["coverage"]) == 25 * 50  # overlap with GT
+        assert np.sum(masks["excess"]) == 25 * 50  # outside GT
 
     def test_empty_predictions(self):
         """No predictions → all masks are zero."""
@@ -133,7 +135,13 @@ class TestComputeCoteMasks:
         gt = [{"x": 0, "y": 0, "width": 50, "height": 50}]
         masks = compute_cote_masks(_gt_map(gt), _pred_masks(gt))
 
-        assert set(masks.keys()) == {"coverage", "overlap", "trespass", "overlap_trespass", "excess"}
+        assert set(masks.keys()) == {
+            "coverage",
+            "overlap",
+            "trespass",
+            "overlap_trespass",
+            "excess",
+        }
 
     def test_output_shape_matches_gt_map(self):
         """Each mask has the same shape as the gt_ssu_map."""
@@ -148,6 +156,7 @@ class TestComputeCoteMasks:
 # ---------------------------------------------------------------------------
 # visualize_cote_states
 # ---------------------------------------------------------------------------
+
 
 class TestVisualizeCoteStates:
 
@@ -184,8 +193,10 @@ class TestVisualizeCoteStates:
     def test_all_zero_masks(self):
         """All-zero masks should produce a figure without error."""
         image = np.ones((H, W), dtype=np.uint8) * 128
-        zero_masks = {k: np.zeros((H, W), dtype=np.int32)
-                      for k in ("coverage", "overlap", "trespass", "overlap_trespass", "excess")}
+        zero_masks = {
+            k: np.zeros((H, W), dtype=np.int32)
+            for k in ("coverage", "overlap", "trespass", "overlap_trespass", "excess")
+        }
         fig = visualize_cote_states(image, zero_masks)
         assert isinstance(fig, matplotlib.figure.Figure)
         matplotlib.pyplot.close(fig)

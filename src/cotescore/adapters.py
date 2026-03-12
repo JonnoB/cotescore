@@ -64,9 +64,7 @@ def scale_box_xywh(box: BBox, scale: float) -> Tuple[int, int, int, int]:
     return x1, y1, x2, y2
 
 
-def clamp_box(
-    x1: int, y1: int, x2: int, y2: int, w: int, h: int
-) -> Tuple[int, int, int, int]:
+def clamp_box(x1: int, y1: int, x2: int, y2: int, w: int, h: int) -> Tuple[int, int, int, int]:
     """Clamp XYXY bounding box coordinates to the image boundary.
 
     Args:

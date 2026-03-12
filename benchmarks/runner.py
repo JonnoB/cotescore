@@ -14,6 +14,7 @@ from tqdm import tqdm
 # It is optional so that PaddlePaddle-only benchmarks work without PyTorch.
 try:
     import torch
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
@@ -201,7 +202,16 @@ class BenchmarkRunner:
             Dictionary containing evaluation results
         """
         if metrics is None:
-            metrics = ["mean_iou", "f1_50", "coverage", "overlap", "trespass", "excess", "cot_score", "map"]
+            metrics = [
+                "mean_iou",
+                "f1_50",
+                "coverage",
+                "overlap",
+                "trespass",
+                "excess",
+                "cot_score",
+                "map",
+            ]
 
         if self._dataset is None:
             logger.info(f"Loading {self.dataset_name.upper()} dataset from {self.dataset_path}")
@@ -256,11 +266,13 @@ class BenchmarkRunner:
         metric_totals = {m: 0.0 for m in metrics if m != "map"}
 
         ordered_futures: List[Future] = []
-        logger.info(f"Running pipelined inference + metrics (batch_size={batch_size}, workers={os.cpu_count()})...")
+        logger.info(
+            f"Running pipelined inference + metrics (batch_size={batch_size}, workers={os.cpu_count()})..."
+        )
 
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             for start in tqdm(range(0, n, batch_size), desc="Inference"):
-                chunk_paths   = all_image_paths[start : start + batch_size]
+                chunk_paths = all_image_paths[start : start + batch_size]
                 chunk_samples = samples[start : start + batch_size]
 
                 # GPU inference for this chunk
@@ -289,10 +301,10 @@ class BenchmarkRunner:
                 # MAP update must stay serial and in-order (not thread-safe)
                 if map_metric:
                     preds = img_result["predictions"]
-                    gt    = img_result["ground_truth"]
+                    gt = img_result["ground_truth"]
                     if map_ignore_class:
                         preds = [{**p, "class": "object"} for p in preds]
-                        gt    = [{**g, "class": "object"} for g in gt]
+                        gt = [{**g, "class": "object"} for g in gt]
                     map_metric.update(preds, gt)
 
                 for metric_name, score in img_result["image_metrics"].items():

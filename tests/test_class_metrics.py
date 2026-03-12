@@ -14,6 +14,7 @@ TOLERANCE = 1e-9
 # Shared fixtures / helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_gt_ssu_map(h: int, w: int, regions: dict) -> np.ndarray:
     """Build a gt_ssu_map from {ssu_id: (row_start, row_end, col_start, col_end)}."""
     gt = np.zeros((h, w), dtype=np.int32)
@@ -40,6 +41,7 @@ GT_2CLASS = _make_gt_ssu_map(H, W, {1: (0, 5, 0, 10), 2: (5, 10, 0, 10)})
 # ---------------------------------------------------------------------------
 # TestCoverageMatrix
 # ---------------------------------------------------------------------------
+
 
 class TestCoverageMatrix:
     """C[k,l] = sum(ms_l & mp_k_b) / A^P_k
@@ -110,6 +112,7 @@ class TestCoverageMatrix:
 # ---------------------------------------------------------------------------
 # TestOverlapMatrix
 # ---------------------------------------------------------------------------
+
 
 class TestOverlapMatrix:
     """O[k,l] = sum(ms_l & (mp_k - mp_k_b)) / A^O_k
@@ -184,6 +187,7 @@ class TestOverlapMatrix:
 # TestTrespassMatrix
 # ---------------------------------------------------------------------------
 
+
 class TestTrespassMatrix:
     """T[k,l] = sum_{j in k} sum(ms_{l\\i(j)} & mp_j) / A^P_k
     Diagonal is non-zero: within-class trespass against other SSUs.
@@ -249,6 +253,7 @@ class TestTrespassMatrix:
 # TestCOTeClass (combined wrapper)
 # ---------------------------------------------------------------------------
 
+
 class TestCOTeClass:
 
     def test_returns_correct_type(self):
@@ -282,7 +287,7 @@ class TestCOTeClass:
     def test_trespass_share_sums_to_one(self):
         preds = [
             _mask(H, W, 5, 10, 0, 10, "A"),  # A pred on B GT
-            _mask(H, W, 0, 5, 0, 10, "B"),   # B pred on A GT
+            _mask(H, W, 0, 5, 0, 10, "B"),  # B pred on A GT
         ]
         result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, preds)
         if result.trespass_share.sum() > 0:

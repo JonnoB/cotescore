@@ -41,9 +41,9 @@ class ClassCOTeResult:
     """
 
     classes: List[Label]
-    coverage_matrix: np.ndarray   # K×K  C[k,l]: class-k preds covering class-l GT
-    overlap_matrix: np.ndarray    # K×K  O[k,l]: class-k & class-l preds overlapping on GT (symmetric)
-    trespass_matrix: np.ndarray   # K×K  T[k,l]: class-k preds trespassing class-l GT (diagonal=0)
-    coverage_share: np.ndarray    # K    fraction of total coverage attributable to class k
-    overlap_share: np.ndarray     # K    fraction of total overlap attributable to class k
-    trespass_share: np.ndarray    # K    fraction of total trespass attributable to class k
+    coverage_matrix: np.ndarray  # K×K  C[k,l]: class-k preds covering class-l GT
+    overlap_matrix: np.ndarray  # K×K  O[k,l]: class-k & class-l preds overlapping on GT (symmetric)
+    trespass_matrix: np.ndarray  # K×K  T[k,l]: class-k preds trespassing class-l GT (diagonal=0)
+    coverage_share: np.ndarray  # K    fraction of total coverage attributable to class k
+    overlap_share: np.ndarray  # K    fraction of total overlap attributable to class k
+    trespass_share: np.ndarray  # K    fraction of total trespass attributable to class k

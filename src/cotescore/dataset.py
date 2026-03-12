@@ -211,8 +211,7 @@ class NCSEDataset:
         missing = required_cols - set(image_annotations.columns)
         if missing:
             raise ValueError(
-                "NCSE annotations CSV is missing required columns: "
-                + ", ".join(sorted(missing))
+                "NCSE annotations CSV is missing required columns: " + ", ".join(sorted(missing))
             )
 
         annotations = []
@@ -303,7 +302,11 @@ class DocLayNetDataset:
         """
         self.dataset_path = Path(dataset_path) if dataset_path is not None else None
         self.split = split
-        _cache_root = self.dataset_path if self.dataset_path is not None else Path("/teamspace/lightning_storage/doclayout")
+        _cache_root = (
+            self.dataset_path
+            if self.dataset_path is not None
+            else Path("/teamspace/lightning_storage/doclayout")
+        )
         self.images_dir = _cache_root / "PNG"
 
         self.images = []
@@ -340,7 +343,9 @@ class DocLayNetDataset:
         )
 
         if local_parquet:
-            logger.info(f"Loading DocLayNet from {self.dataset_path} ({len(local_parquet)} parquet files)...")
+            logger.info(
+                f"Loading DocLayNet from {self.dataset_path} ({len(local_parquet)} parquet files)..."
+            )
             ds = datasets.load_dataset(
                 "parquet",
                 data_files=[str(p) for p in local_parquet],
@@ -349,7 +354,9 @@ class DocLayNetDataset:
         else:
             # Fall back to HuggingFace download
             hf_split = "validation" if self.split == "val" else self.split
-            logger.info(f"No local parquet files found — downloading DocLayNet-v1.2 '{hf_split}' split from HuggingFace...")
+            logger.info(
+                f"No local parquet files found — downloading DocLayNet-v1.2 '{hf_split}' split from HuggingFace..."
+            )
             ds = datasets.load_dataset(
                 "docling-project/DocLayNet-v1.2",
                 data_files=f"data/{hf_split}-*.parquet",

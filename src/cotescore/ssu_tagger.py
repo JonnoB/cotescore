@@ -409,7 +409,9 @@ class SSUTagger:
         for region_id in text_regions:
             if region_id not in grouped_region_ids:
                 semantic_id += 1
-                ssu_id = f"ssu_{region_id}" if self.unique_per_region else f"ssu_{semantic_id}_ungrouped"
+                ssu_id = (
+                    f"ssu_{region_id}" if self.unique_per_region else f"ssu_{semantic_id}_ungrouped"
+                )
                 _register(region_id, ssu_id, "ungrouped", "ungrouped")
 
         return region_to_ssu, ssu_to_regions, ssu_metadata

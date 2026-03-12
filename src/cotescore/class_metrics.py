@@ -56,6 +56,7 @@ from cotescore.types import ClassCOTeResult, Label, MaskInstance
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_preds_have_labels(preds: Sequence[MaskInstance]) -> None:
     """Ensure every prediction carries a class label.
 
@@ -84,7 +85,7 @@ def _build_class_gt_masks(
         ssu_ids = {sid for sid, c in ssu_to_class.items() if c == cls}
         mask = np.zeros(gt_ssu_map.shape, dtype=bool)
         for sid in ssu_ids:
-            mask |= (gt_ssu_map == sid)
+            mask |= gt_ssu_map == sid
         result[cls] = mask
     return result
 
@@ -128,6 +129,7 @@ def _class_count_pred_mask(
 # ---------------------------------------------------------------------------
 # Public matrix functions
 # ---------------------------------------------------------------------------
+
 
 def coverage_matrix(
     gt_ssu_map: np.ndarray,
@@ -305,6 +307,7 @@ def trespass_matrix(
 # Combined wrapper
 # ---------------------------------------------------------------------------
 
+
 def cote_class(
     gt_ssu_map: np.ndarray,
     ssu_to_class: Dict[int, Label],
@@ -422,7 +425,9 @@ def cote_class(
         for cls, k in cls_idx.items():
             mp_k = class_mp[cls]
             mp_k_b_int = class_mp_b[cls].astype(np.int32)
-            O_share[k] = float(np.sum(ms.astype(np.int32) * (mp_k - mp_k_b_int))) / global_overlap_area
+            O_share[k] = (
+                float(np.sum(ms.astype(np.int32) * (mp_k - mp_k_b_int))) / global_overlap_area
+            )
 
     # --- Trespass share ---
     # T_share[k] = sum_{j in k} sum(ms_{excluding owner(j)} & mp_j) / (T_scalar * A_S)

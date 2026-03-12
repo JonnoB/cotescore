@@ -1,7 +1,7 @@
 """
 COTe-Score: Coverage, Overlap, Trespass, Excess
 
-A library for evaluating document layout analysis models using Coverage, Overlap, 
+A library for evaluating document layout analysis models using Coverage, Overlap,
 Trespass, and Excess metrics.
 """
 
@@ -14,9 +14,18 @@ from .visualisation import compute_cote_masks, visualize_cote_states
 from .dataset import load_limerick_example
 
 __all__ = [
-    "cote_score", "coverage", "overlap", "iou", "mean_iou", "cdd",
-    "cote_class", "coverage_matrix", "overlap_matrix", "trespass_matrix",
+    "cote_score",
+    "coverage",
+    "overlap",
+    "iou",
+    "mean_iou",
+    "cdd",
+    "cote_class",
+    "coverage_matrix",
+    "overlap_matrix",
+    "trespass_matrix",
     "ClassCOTeResult",
-    "compute_cote_masks", "visualize_cote_states",
+    "compute_cote_masks",
+    "visualize_cote_states",
     "load_limerick_example",
 ]

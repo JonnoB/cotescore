@@ -76,7 +76,7 @@ def _ms_mask(gt_ssu_map: np.ndarray) -> np.ndarray:
     Returns:
         A 2D boolean array that is ``True`` wherever ``gt_ssu_map > 0``.
     """
-    return (gt_ssu_map > 0)
+    return gt_ssu_map > 0
 
 
 def _area_s(ms_mask: np.ndarray) -> int:

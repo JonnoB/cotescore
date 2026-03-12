@@ -116,7 +116,9 @@ def iou(box1: BBox, box2: BBox) -> float:
     return intersection / union if union > 0 else 0.0
 
 
-def f1(predicted_regions: List[BBox], ground_truth_regions: List[BBox], threshold: float = 0.5) -> float:
+def f1(
+    predicted_regions: List[BBox], ground_truth_regions: List[BBox], threshold: float = 0.5
+) -> float:
     """
     Calculate F1 score at a given IoU threshold (default 0.50).
 

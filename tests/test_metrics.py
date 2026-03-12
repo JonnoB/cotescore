@@ -507,7 +507,7 @@ class TestF1:
     def test_f1_one_tp_one_fp(self):
         """One matched pred (TP) and one unmatched pred (FP): precision=0.5, recall=1.0, F1=2/3."""
         pred = [
-            {"x": 0, "y": 0, "width": 100, "height": 100},   # matches gt[0]
+            {"x": 0, "y": 0, "width": 100, "height": 100},  # matches gt[0]
             {"x": 500, "y": 500, "width": 10, "height": 10},  # FP
         ]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
@@ -518,8 +518,8 @@ class TestF1:
         """One matched GT (TP) and one unmatched GT (FN): precision=1.0, recall=0.5, F1=2/3."""
         pred = [{"x": 0, "y": 0, "width": 100, "height": 100}]
         gt = [
-            {"x": 0, "y": 0, "width": 100, "height": 100},    # matched
-            {"x": 500, "y": 500, "width": 50, "height": 50},   # FN
+            {"x": 0, "y": 0, "width": 100, "height": 100},  # matched
+            {"x": 500, "y": 500, "width": 50, "height": 50},  # FN
         ]
         expected = 2 * (1.0 * 0.5) / (1.0 + 0.5)  # 2/3
         assert abs(f1(pred, gt) - expected) < TOLERANCE
@@ -550,7 +550,7 @@ class TestF1:
         # box1=[0,0,100,100], box2=[0,0,100,75]: intersection=7500, union=10000, IoU=0.75 exactly
         pred = [{"x": 0, "y": 0, "width": 100, "height": 75}]
         gt = [{"x": 0, "y": 0, "width": 100, "height": 100}]
-        assert abs(f1(pred, gt, threshold=0.5) - 1.0) < TOLERANCE   # passes at 0.5
+        assert abs(f1(pred, gt, threshold=0.5) - 1.0) < TOLERANCE  # passes at 0.5
         assert abs(f1(pred, gt, threshold=0.75) - 1.0) < TOLERANCE  # exactly at 0.75
         assert abs(f1(pred, gt, threshold=0.76) - 0.0) < TOLERANCE  # fails above 0.75
 

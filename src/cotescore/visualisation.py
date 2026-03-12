@@ -22,11 +22,11 @@ from cotescore.types import MaskInstance
 
 # RGBA colour palette for each COTe state
 COTE_COLORS: Dict[str, Tuple[float, float, float, float]] = {
-    "coverage": (0.2, 0.7, 0.3, 0.5),          # Green  – good
-    "overlap": (1.0, 0.8, 0.0, 0.5),            # Amber  – warning
-    "trespass": (0.9, 0.2, 0.2, 0.6),           # Red    – bad
-    "overlap_trespass": (0.7, 0.0, 0.5, 0.6),   # Purple – severe
-    "excess": (0.3, 0.5, 0.9, 0.4),             # Blue   – outside scope
+    "coverage": (0.2, 0.7, 0.3, 0.5),  # Green  – good
+    "overlap": (1.0, 0.8, 0.0, 0.5),  # Amber  – warning
+    "trespass": (0.9, 0.2, 0.2, 0.6),  # Red    – bad
+    "overlap_trespass": (0.7, 0.0, 0.5, 0.6),  # Purple – severe
+    "excess": (0.3, 0.5, 0.9, 0.4),  # Blue   – outside scope
 }
 
 COTE_LABELS: Dict[str, str] = {
@@ -88,18 +88,27 @@ def compute_cote_masks(
 def visualize_cote_states(
     image: np.ndarray,
     masks: Dict[str, np.ndarray],
-    ax: plt.Axes,
-) -> list:
+    ax: plt.Axes = None,
+):
     """Draw image and COTe mask overlays into an existing axes.
 
     Args:
         image: Grayscale (2D) or RGB (3D) image array.
         masks: Dict of binary masks, e.g. from :func:`compute_cote_masks`.
-        ax: Matplotlib axes to draw into.
+        ax: Matplotlib axes to draw into. If None, a new figure and axes are
+            created and the figure is returned.
 
     Returns:
-        List of legend Patch objects for the states that were drawn.
+        If ax is None: a matplotlib Figure. Otherwise, a list of legend Patch
+        objects for the states that were drawn.
     """
+    if ax is None:
+        fig, ax = plt.subplots()
+        return_fig = True
+    else:
+        fig = None
+        return_fig = False
+
     if image.ndim == 2:
         ax.imshow(image, cmap="gray", vmin=0, vmax=255)
     else:
@@ -117,4 +126,4 @@ def visualize_cote_states(
         )
 
     ax.axis("off")
-    return legend_patches
+    return fig if return_fig else legend_patches
