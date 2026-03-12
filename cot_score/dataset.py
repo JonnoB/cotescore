@@ -595,11 +595,24 @@ class HNLA2013Dataset:
         return annotations, orig_w, orig_h
 
     def __len__(self) -> int:
+        """Return the number of images in the dataset."""
         if not self._loaded:
             self.load()
         return len(self.images)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get a sample from the dataset.
+
+        Args:
+            idx: Zero-based index of the sample to retrieve.
+
+        Returns:
+            A dict with keys ``"image_path"``, ``"annotations"``, and
+            ``"filename"``.
+
+        Raises:
+            IndexError: If ``idx`` is out of range.
+        """
         if not self._loaded:
             self.load()
         if idx < 0 or idx >= len(self.images):
@@ -612,6 +625,17 @@ class HNLA2013Dataset:
         }
 
     def get_annotations(self, idx: int) -> List[Dict[str, Any]]:
+        """Get ground-truth annotations for a sample.
+
+        Args:
+            idx: Zero-based index of the sample.
+
+        Returns:
+            List of annotation dicts for the requested sample.
+
+        Raises:
+            IndexError: If ``idx`` is out of range.
+        """
         if not self._loaded:
             self.load()
         if idx < 0 or idx >= len(self.images):

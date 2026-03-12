@@ -57,6 +57,14 @@ from cot_score.types import ClassCOTeResult, Label, MaskInstance
 # ---------------------------------------------------------------------------
 
 def _validate_preds_have_labels(preds: Sequence[MaskInstance]) -> None:
+    """Ensure every prediction carries a class label.
+
+    Args:
+        preds: Sequence of :class:`~cot_score.types.MaskInstance` predictions.
+
+    Raises:
+        ValueError: If any prediction has ``label=None``.
+    """
     for i, p in enumerate(preds):
         if p.label is None:
             raise ValueError(

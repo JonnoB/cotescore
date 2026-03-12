@@ -19,6 +19,24 @@ BBox = Dict[str, Any]
 
 
 def eval_shape(orig_w: int, orig_h: int, max_dim: int = 2000) -> Tuple[int, int, float]:
+    """Compute the evaluation canvas size by scaling the image's longest side to ``max_dim``.
+
+    If the image already fits within ``max_dim`` on its longest side, no
+    scaling is applied (scale factor = 1.0).
+
+    Args:
+        orig_w: Original image width in pixels.
+        orig_h: Original image height in pixels.
+        max_dim: Maximum allowed size for the longest dimension (default 2000).
+
+    Returns:
+        A tuple ``(eval_w, eval_h, scale)`` where ``eval_w`` and ``eval_h``
+        are the scaled dimensions (minimum 1) and ``scale`` is the factor
+        applied to original coordinates.
+
+    Raises:
+        ValueError: If ``orig_w`` or ``orig_h`` is not positive.
+    """
     if orig_w <= 0 or orig_h <= 0:
         raise ValueError("Invalid image size")
     scale = min(1.0, float(max_dim) / float(max(orig_w, orig_h)))
@@ -28,6 +46,17 @@ def eval_shape(orig_w: int, orig_h: int, max_dim: int = 2000) -> Tuple[int, int,
 
 
 def scale_box_xywh(box: BBox, scale: float) -> Tuple[int, int, int, int]:
+    """Scale an XYWH bounding box and convert it to integer XYXY coordinates.
+
+    Args:
+        box: Bounding box dict with keys ``"x"``, ``"y"``, ``"width"``, and
+            ``"height"`` in XYWH format.
+        scale: Multiplicative scale factor to apply to all coordinates.
+
+    Returns:
+        A tuple ``(x1, y1, x2, y2)`` of rounded integer pixel coordinates in
+        XYXY format.
+    """
     x1 = int(round(float(box["x"]) * scale))
     y1 = int(round(float(box["y"]) * scale))
     x2 = int(round((float(box["x"]) + float(box["width"])) * scale))
@@ -38,6 +67,19 @@ def scale_box_xywh(box: BBox, scale: float) -> Tuple[int, int, int, int]:
 def clamp_box(
     x1: int, y1: int, x2: int, y2: int, w: int, h: int
 ) -> Tuple[int, int, int, int]:
+    """Clamp XYXY bounding box coordinates to the image boundary.
+
+    Args:
+        x1: Left edge of the box.
+        y1: Top edge of the box.
+        x2: Right edge of the box.
+        y2: Bottom edge of the box.
+        w: Image width; x coordinates are clamped to ``[0, w]``.
+        h: Image height; y coordinates are clamped to ``[0, h]``.
+
+    Returns:
+        A tuple ``(x1, y1, x2, y2)`` with all values clamped within the image.
+    """
     x1c = max(0, min(w, x1))
     x2c = max(0, min(w, x2))
     y1c = max(0, min(h, y1))
@@ -53,11 +95,25 @@ def boxes_to_gt_ssu_map(
     scale: float = 1.0,
     ssu_id_key: str = "ssu_id",
 ) -> np.ndarray:
-    """Rasterize ground-truth SSU boxes to an SSU id map.
+    """Rasterize ground-truth SSU boxes onto a 2D SSU id map.
 
-    Note: Real-world annotations can contain small boundary overlaps due to rounding.
-    To avoid crashing evaluation, this rasterizer uses a first-write-wins policy:
-    once a pixel has been assigned to a non-zero SSU id, it will not be overwritten.
+    Each box is scaled, clamped to the canvas, and painted with its integer
+    SSU id. A first-write-wins policy is used to handle small boundary overlaps
+    that can arise from rounding in real-world annotations: once a pixel has
+    been assigned a non-zero SSU id it will not be overwritten.
+
+    Args:
+        boxes: Sequence of ground-truth annotation boxes in XYWH format, each
+            containing at minimum the ``ssu_id_key`` field.
+        w: Canvas width in pixels.
+        h: Canvas height in pixels.
+        scale: Scale factor applied to each box before rasterization.
+        ssu_id_key: Key in each box dict that holds the integer SSU id
+            (default ``"ssu_id"``).
+
+    Returns:
+        A 2D ``int32`` array of shape ``(h, w)`` where each pixel holds the
+        SSU id of the ground-truth region it belongs to (0 = background).
     """
 
     gt_map = np.zeros((h, w), dtype=np.int32)
@@ -79,6 +135,21 @@ def boxes_to_pred_masks(
     *,
     scale: float = 1.0,
 ) -> List[np.ndarray]:
+    """Rasterize a list of prediction bounding boxes into binary masks.
+
+    Each box is scaled, clamped to the canvas, and painted as ``True`` on its
+    own ``(h, w)`` boolean canvas. Boxes that collapse to zero area after
+    clamping produce an all-``False`` mask.
+
+    Args:
+        boxes: Sequence of prediction bounding boxes in XYWH format.
+        w: Canvas width in pixels (after any scaling has been applied).
+        h: Canvas height in pixels (after any scaling has been applied).
+        scale: Scale factor applied to each box before rasterization.
+
+    Returns:
+        List of 2D boolean numpy arrays of shape ``(h, w)``, one per input box.
+    """
     masks: List[np.ndarray] = []
     for p in boxes:
         m = np.zeros((h, w), dtype=bool)
@@ -115,7 +186,17 @@ def build_ssu_to_class(
 
 
 def calculate_intersection_area(box1: BBox, box2: BBox) -> float:
-    """Calculate the intersection area between two bounding boxes."""
+    """Calculate the intersection area between two bounding boxes.
+
+    Args:
+        box1: First bounding box dict with keys ``"x"``, ``"y"``, ``"width"``,
+            and ``"height"``.
+        box2: Second bounding box dict in the same format.
+
+    Returns:
+        The area of the overlapping region, or ``0.0`` if the boxes do not
+        intersect.
+    """
     x1_min = box1["x"]
     y1_min = box1["y"]
     x1_max = box1["x"] + box1["width"]
@@ -137,7 +218,18 @@ def calculate_intersection_area(box1: BBox, box2: BBox) -> float:
 
 
 def get_intersection_box(box1: BBox, box2: BBox) -> Optional[Dict[str, float]]:
-    """Get the bounding box representing the intersection of two boxes."""
+    """Return the bounding box of the intersection of two boxes, if any.
+
+    Args:
+        box1: First bounding box dict with keys ``"x"``, ``"y"``, ``"width"``,
+            and ``"height"``.
+        box2: Second bounding box dict in the same format.
+
+    Returns:
+        A dict with keys ``"x"``, ``"y"``, ``"width"``, ``"height"``
+        describing the intersection region, or ``None`` if the boxes do not
+        overlap.
+    """
     x1_min = box1["x"]
     y1_min = box1["y"]
     x1_max = box1["x"] + box1["width"]
@@ -164,7 +256,19 @@ def get_intersection_box(box1: BBox, box2: BBox) -> Optional[Dict[str, float]]:
 
 
 def calculate_union_area_from_boxes(boxes: Sequence[BBox]) -> float:
-    """Calculate the union area of a list of boxes using the grid method."""
+    """Calculate the total union area of a collection of bounding boxes.
+
+    Uses a coordinate-compression grid: the x and y extents of all boxes are
+    used to define a grid of cells, and each cell is counted once if its
+    centre point falls inside any box.
+
+    Args:
+        boxes: Sequence of bounding box dicts with keys ``"x"``, ``"y"``,
+            ``"width"``, and ``"height"``.
+
+    Returns:
+        The union area as a float, or ``0.0`` if ``boxes`` is empty.
+    """
     if not boxes:
         return 0.0
 

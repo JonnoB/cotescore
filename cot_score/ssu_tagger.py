@@ -18,6 +18,15 @@ class SSUTagger:
     """Assigns SSU identifiers to TextRegions in a PAGE XML file."""
 
     def __init__(self, page_xml_path: str, unique_per_region: bool = False) -> None:
+        """Initialise the tagger for a single PAGE XML file.
+
+        Args:
+            page_xml_path: Path to the PAGE XML file whose TextRegions will
+                be assigned SSU identifiers.
+            unique_per_region: If ``True``, each TextRegion receives a unique
+                SSU id regardless of reading-order grouping. Defaults to
+                ``False``.
+        """
         self.page_xml_path = page_xml_path
         self.unique_per_region = unique_per_region
 

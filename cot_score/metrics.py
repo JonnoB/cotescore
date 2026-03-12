@@ -262,8 +262,27 @@ def cote_score(
     weight_overlap: float = 1.0,
     weight_trespass: float = 1.0,
 ) -> Tuple[float, float, float, float, float]:
-    """
-    The COTe score decomposition.
+    """Compute the full COTe score decomposition for a set of predictions.
+
+    Returns the weighted composite COTe score together with the four
+    individual component values: Coverage, Overlap, Trespass, and Excess.
+
+    Args:
+        gt_ssu_map: A 2D integer array where each pixel holds the SSU id of
+            its ground-truth region (0 = background).
+        preds: Sequence of predictions, each either a 2D boolean numpy array
+            or a :class:`~cot_score.types.MaskInstance`.
+        weight_coverage: Weight applied to the Coverage component in the
+            composite score (default 1.0).
+        weight_overlap: Weight applied to the Overlap component in the
+            composite score (default 1.0).
+        weight_trespass: Weight applied to the Trespass component in the
+            composite score (default 1.0).
+
+    Returns:
+        A 5-tuple ``(cote, coverage, overlap, trespass, excess)`` where
+        ``cote = weight_coverage * C - weight_overlap * O - weight_trespass * T``
+        and each component is in the range ``[0.0, 1.0]``.
     """
     gt_ssu_map = _check_gt_map(gt_ssu_map)
     pred_masks = _as_pred_masks(preds)
@@ -479,8 +498,21 @@ def _standardize_box_format(box: InputBox, format_str: Optional[str] = None) -> 
 def _standardize_input_format(
     regions: Iterable[InputBox], format_str: Optional[str] = None
 ) -> List[BBox]:
-    """
-    Standardize a list of regions to the standard dictionary format.
+    """Standardize a sequence of regions to the internal bounding box dict format.
+
+    Delegates to :func:`_standardize_box_format` for each element.
+
+    Args:
+        regions: Iterable of input boxes, each either a dict with ``"x"``,
+            ``"y"``, ``"width"``, ``"height"`` keys, or a 4-element sequence
+            interpreted according to ``format_str``.
+        format_str: Box coordinate format for sequence inputs — one of
+            ``"xywh"``, ``"xyxy"``, or ``"cxcywh"``. If ``None``, dict
+            inputs are passed through unchanged.
+
+    Returns:
+        List of bounding box dicts with keys ``"x"``, ``"y"``, ``"width"``,
+        and ``"height"``.
     """
     if not regions:
         return []

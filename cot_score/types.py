@@ -1,3 +1,5 @@
+"""Shared type definitions used across the cot_score package."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +13,16 @@ Label = Union[str, int]
 
 @dataclass(frozen=True)
 class MaskInstance:
+    """A single prediction represented as a binary mask with optional metadata.
+
+    Attributes:
+        mask: A 2D boolean numpy array where ``True`` pixels indicate the
+            predicted region.
+        label: Optional class label for the prediction (string or integer).
+        score: Optional confidence score for the prediction.
+        pred_id: Optional integer identifier for the prediction.
+    """
+
     mask: np.ndarray
     label: Optional[Label] = None
     score: Optional[float] = None
