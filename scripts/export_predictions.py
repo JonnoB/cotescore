@@ -88,22 +88,27 @@ def main():
     # Load model
     if args.model == "yolo":
         from models.doclayout_yolo import DocLayoutYOLO
+
         model = DocLayoutYOLO(device=args.device)
         model_name = "DocLayout-YOLO"
     elif args.model == "heron":
         from models.docling_heron import DoclingLayoutHeron
+
         model = DoclingLayoutHeron(device=args.device)
         model_name = "DoclingLayoutHeron"
     elif args.model == "ppdoc-l":
         from models.pp_doclayout import PPDocLayout
+
         model = PPDocLayout(device=args.device)
         model_name = "PPDocLayout-L"
     elif args.model == "ppdoc-m":
         from models.pp_doclayout import PPDocLayout
+
         model = PPDocLayout(model_name="PP-DocLayout-M", device=args.device)
         model_name = "PPDocLayout-M"
     elif args.model == "ppdoc-s":
         from models.pp_doclayout import PPDocLayout
+
         model = PPDocLayout(model_name="PP-DocLayout-S", device=args.device)
         model_name = "PPDocLayout-S"
 
@@ -142,37 +147,55 @@ def main():
 
         # Ground truth rows
         for ann in annotations:
-            rows.append({
-                **base,
-                "source": "gt",
-                "x": ann["x"],
-                "y": ann["y"],
-                "width": ann["width"],
-                "height": ann["height"],
-                "class": ann["class"],
-                "confidence": ann.get("confidence", 1.0),
-                "ssu_id": ann.get("ssu_id", None),
-            })
+            rows.append(
+                {
+                    **base,
+                    "source": "gt",
+                    "x": ann["x"],
+                    "y": ann["y"],
+                    "width": ann["width"],
+                    "height": ann["height"],
+                    "class": ann["class"],
+                    "confidence": ann.get("confidence", 1.0),
+                    "ssu_id": ann.get("ssu_id", None),
+                }
+            )
 
         # Prediction rows
         predictions = model.predict(image_path)
         for pred in predictions:
-            rows.append({
-                **base,
-                "source": "pred",
-                "x": pred["x"],
-                "y": pred["y"],
-                "width": pred["width"],
-                "height": pred["height"],
-                "class": pred["class"],
-                "confidence": pred.get("confidence", None),
-                "ssu_id": None,
-            })
+            rows.append(
+                {
+                    **base,
+                    "source": "pred",
+                    "x": pred["x"],
+                    "y": pred["y"],
+                    "width": pred["width"],
+                    "height": pred["height"],
+                    "class": pred["class"],
+                    "confidence": pred.get("confidence", None),
+                    "ssu_id": None,
+                }
+            )
 
-    df = pd.DataFrame(rows, columns=[
-        "filename", "image_path", "image_width", "image_height", "model",
-        "source", "x", "y", "width", "height", "class", "confidence", "ssu_id",
-    ])
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "filename",
+            "image_path",
+            "image_width",
+            "image_height",
+            "model",
+            "source",
+            "x",
+            "y",
+            "width",
+            "height",
+            "class",
+            "confidence",
+            "ssu_id",
+        ],
+    )
 
     df.to_csv(output_path, index=False)
     logger.info(f"Saved {len(df)} rows to {output_path}")

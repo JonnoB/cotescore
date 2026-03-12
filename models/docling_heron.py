@@ -129,8 +129,7 @@ class DoclingLayoutHeron(LayoutModel):
             self.load()
 
         use_fp16 = (
-            self.device.startswith("cuda")
-            and next(self.model.parameters()).dtype == torch.float16
+            self.device.startswith("cuda") and next(self.model.parameters()).dtype == torch.float16
         )
 
         def _load_image(path: Path) -> Image.Image:
@@ -148,7 +147,11 @@ class DoclingLayoutHeron(LayoutModel):
             inputs = self.image_processor(images=images, return_tensors="pt")
             if use_fp16:
                 inputs = {
-                    k: v.to(self.device, dtype=torch.float16) if v.is_floating_point() else v.to(self.device)
+                    k: (
+                        v.to(self.device, dtype=torch.float16)
+                        if v.is_floating_point()
+                        else v.to(self.device)
+                    )
                     for k, v in inputs.items()
                 }
             else:
@@ -158,9 +161,7 @@ class DoclingLayoutHeron(LayoutModel):
                 outputs = self.model(**inputs)
 
             # PIL .size is (W, H); post_process expects [H, W]
-            target_sizes = torch.tensor(
-                [img.size[::-1] for img in images], device=self.device
-            )
+            target_sizes = torch.tensor([img.size[::-1] for img in images], device=self.device)
             results = self.image_processor.post_process_object_detection(
                 outputs, target_sizes=target_sizes, threshold=self.threshold
             )

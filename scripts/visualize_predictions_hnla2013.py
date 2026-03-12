@@ -208,7 +208,9 @@ def main():
         required=True,
         help="Path to groundtruth_with_ssu/ directory containing PAGE XML files",
     )
-    parser.add_argument("--output", type=str, default="visualizations/hnla2013", help="Output directory")
+    parser.add_argument(
+        "--output", type=str, default="visualizations/hnla2013", help="Output directory"
+    )
     parser.add_argument(
         "--model-type",
         type=str,

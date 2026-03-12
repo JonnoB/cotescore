@@ -14,7 +14,6 @@ def _():
     from PIL import Image
     import marimo as mo
 
-
     from cotescore.visualisation import compute_cote_masks, visualize_cote_states
     from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
     from cotescore.metrics import cote_score, coverage, overlap, trespass, excess, mean_iou, f1
@@ -102,7 +101,13 @@ def _(
 
         fig, ax = plt.subplots(figsize=figsize, dpi=72)
         patches = visualize_cote_states(image_array, masks, ax)
-        fig.legend(handles=patches, loc="lower center", ncol=max(len(patches), 1), framealpha=0.9, fontsize=20)
+        fig.legend(
+            handles=patches,
+            loc="lower center",
+            ncol=max(len(patches), 1),
+            framealpha=0.9,
+            fontsize=20,
+        )
 
         metrics_text = (
             f"Coverage: {cov:.3f}   Overlap: {ovl:.3f}   "
@@ -130,7 +135,9 @@ def _(
     plt,
     visualize_cote_states,
 ):
-    def make_multi_model_figure(dfs, filename, panel_width=10, metrics_col_width=1.8, dpi=72, show_metrics=True):
+    def make_multi_model_figure(
+        dfs, filename, panel_width=10, metrics_col_width=1.8, dpi=72, show_metrics=True
+    ):
         """Render one image with all models side-by-side in a single figure.
 
         Args:
@@ -160,7 +167,8 @@ def _(
         if show_metrics:
             # Alternating columns: [image, metrics, image, metrics, ...]
             gs = fig.add_gridspec(
-                1, n * 2,
+                1,
+                n * 2,
                 width_ratios=[panel_width, metrics_col_width] * n,
                 wspace=0.02,
             )
@@ -212,7 +220,9 @@ def _(
                     f"Pred: {len(pred_boxes)}"
                 )
                 txt_ax.text(
-                    0.1, 0.5, metrics_text,
+                    0.1,
+                    0.5,
+                    metrics_text,
                     transform=txt_ax.transAxes,
                     fontsize=20,
                     verticalalignment="center",
@@ -236,14 +246,14 @@ def _(
 
 @app.cell
 def _(heron_df):
-    heron_df['filename'].unique()
+    heron_df["filename"].unique()
     return
 
 
 @app.cell
 def _(heron_df, make_multi_model_figure, mo, ppdoc_l, yolo_df):
 
-    _filename = 'TTW_1868-05-16_page_5.png'
+    _filename = "TTW_1868-05-16_page_5.png"
     _fig = make_multi_model_figure(
         [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)],
         _filename,
@@ -270,7 +280,7 @@ def _(
     yolo_df,
 ):
 
-    _filename = 'TTW_1868-05-16_page_5.png'
+    _filename = "TTW_1868-05-16_page_5.png"
     _dfs = [("YOLO", yolo_df), ("Heron", heron_df), ("PPDoc-L", ppdoc_l)]
 
     _rows = []
@@ -291,21 +301,31 @@ def _(
         _miou = mean_iou(_pred_boxes, _gt_boxes)
         _f1 = f1(_pred_boxes, _gt_boxes)
 
-        _rows.append({
-            "Model": _model_name,
-            "CoTE": _cot,
-            "Coverage": _cov,
-            "Overlap": _ovl,
-            "Trespass": _tres,
-            "Excess": _exc,
-            "mIoU": _miou,
-            "F1": _f1,
-        })
+        _rows.append(
+            {
+                "Model": _model_name,
+                "CoTE": _cot,
+                "Coverage": _cov,
+                "Overlap": _ovl,
+                "Trespass": _tres,
+                "Excess": _exc,
+                "mIoU": _miou,
+                "F1": _f1,
+            }
+        )
 
     _metrics_df = pd.DataFrame(_rows).set_index("Model")
 
     # best direction per column: True = higher is better, False = lower is better
-    _best_max = {"CoTE": True, "Coverage": True, "Overlap": False, "Trespass": False, "Excess": False, "mIoU": True, "F1": True}
+    _best_max = {
+        "CoTE": True,
+        "Coverage": True,
+        "Overlap": False,
+        "Trespass": False,
+        "Excess": False,
+        "mIoU": True,
+        "F1": True,
+    }
 
     def _fmt(col, val):
         best_fn = max if _best_max[col] else min
@@ -327,8 +347,7 @@ def _(
         f"\\begin{{tabular}}{{l{'l' * len(_cols)}}}\n"
         "\\toprule\n"
         f" & {_col_header} \\\\\n"
-        "\\midrule\n"
-        + "\n".join(_rows_latex) + "\n"
+        "\\midrule\n" + "\n".join(_rows_latex) + "\n"
         "\\bottomrule\n"
         "\\end{tabular}\n"
         "\\end{table}"

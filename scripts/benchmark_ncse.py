@@ -17,6 +17,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from benchmarks.runner import BenchmarkRunner
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
@@ -101,30 +102,45 @@ def main():
 
     if "yolo" in args.models:
         from models.doclayout_yolo import DocLayoutYOLO
+
         models_to_run.append(
             ("DocLayout-YOLO", DocLayoutYOLO(device=args.device if args.device else "cpu"))
         )
 
     if "heron" in args.models:
         from models.docling_heron import DoclingLayoutHeron
+
         models_to_run.append(("DoclingLayoutHeron", DoclingLayoutHeron(device=args.device)))
 
     if "ppdoc-l" in args.models:
         from models.pp_doclayout import PPDocLayout
+
         models_to_run.append(
             ("PPDocLayout-L", PPDocLayout(device=args.device if args.device else "cpu"))
         )
 
     if "ppdoc-m" in args.models:
         from models.pp_doclayout import PPDocLayout
+
         models_to_run.append(
-            ("PPDocLayout-M", PPDocLayout(model_name="PP-DocLayout-M", device=args.device if args.device else "cpu"))
+            (
+                "PPDocLayout-M",
+                PPDocLayout(
+                    model_name="PP-DocLayout-M", device=args.device if args.device else "cpu"
+                ),
+            )
         )
 
     if "ppdoc-s" in args.models:
         from models.pp_doclayout import PPDocLayout
+
         models_to_run.append(
-            ("PPDocLayout-S", PPDocLayout(model_name="PP-DocLayout-S", device=args.device if args.device else "cpu"))
+            (
+                "PPDocLayout-S",
+                PPDocLayout(
+                    model_name="PP-DocLayout-S", device=args.device if args.device else "cpu"
+                ),
+            )
         )
 
     for model_name, model in models_to_run:

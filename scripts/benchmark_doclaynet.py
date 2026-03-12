@@ -29,13 +29,15 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark all document layout models on DocLayNet")
+    parser = argparse.ArgumentParser(
+        description="Benchmark all document layout models on DocLayNet"
+    )
     parser.add_argument(
         "--dataset",
         type=str,
         default=None,
         help="Path to directory containing DocLayNet HuggingFace parquet files. "
-             "If omitted, the dataset is downloaded from HuggingFace.",
+        "If omitted, the dataset is downloaded from HuggingFace.",
     )
     parser.add_argument(
         "--split",
@@ -43,7 +45,7 @@ def main():
         default="test",
         choices=["train", "val", "test"],
         help="Dataset split to use when downloading from HuggingFace (default: test). "
-             "Ignored when --dataset points to local parquet files.",
+        "Ignored when --dataset points to local parquet files.",
     )
     parser.add_argument(
         "--output",
@@ -93,30 +95,45 @@ def main():
 
     if "yolo" in args.models:
         from models.doclayout_yolo import DocLayoutYOLO
+
         models_to_run.append(
             ("DocLayout-YOLO", DocLayoutYOLO(device=args.device if args.device else "cpu"))
         )
 
     if "heron" in args.models:
         from models.docling_heron import DoclingLayoutHeron
+
         models_to_run.append(("DoclingLayoutHeron", DoclingLayoutHeron(device=args.device)))
 
     if "ppdoc-l" in args.models:
         from models.pp_doclayout import PPDocLayout
+
         models_to_run.append(
             ("PPDocLayout-L", PPDocLayout(device=args.device if args.device else "cpu"))
         )
 
     if "ppdoc-m" in args.models:
         from models.pp_doclayout import PPDocLayout
+
         models_to_run.append(
-            ("PPDocLayout-M", PPDocLayout(model_name="PP-DocLayout-M", device=args.device if args.device else "cpu"))
+            (
+                "PPDocLayout-M",
+                PPDocLayout(
+                    model_name="PP-DocLayout-M", device=args.device if args.device else "cpu"
+                ),
+            )
         )
 
     if "ppdoc-s" in args.models:
         from models.pp_doclayout import PPDocLayout
+
         models_to_run.append(
-            ("PPDocLayout-S", PPDocLayout(model_name="PP-DocLayout-S", device=args.device if args.device else "cpu"))
+            (
+                "PPDocLayout-S",
+                PPDocLayout(
+                    model_name="PP-DocLayout-S", device=args.device if args.device else "cpu"
+                ),
+            )
         )
 
     for model_name, model in models_to_run:

@@ -678,11 +678,15 @@ def extract_ssu_boxes(ground_truth: dict) -> list:
             y_min = min(b[1] for b in bboxes)
             x_max = max(b[0] + b[2] for b in bboxes)
             y_max = max(b[1] + b[3] for b in bboxes)
-            gt_boxes.append({
-                "x": x_min, "y": y_min,
-                "width": x_max - x_min, "height": y_max - y_min,
-                "ssu_id": len(gt_boxes) + 1,
-            })
+            gt_boxes.append(
+                {
+                    "x": x_min,
+                    "y": y_min,
+                    "width": x_max - x_min,
+                    "height": y_max - y_min,
+                    "ssu_id": len(gt_boxes) + 1,
+                }
+            )
     return gt_boxes
 
 

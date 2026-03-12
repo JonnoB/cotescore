@@ -37,7 +37,7 @@ def main():
         type=str,
         default=None,
         help="Path to directory containing DocLayNet HuggingFace parquet files. "
-             "If omitted, the test split is downloaded from HuggingFace.",
+        "If omitted, the test split is downloaded from HuggingFace.",
     )
     parser.add_argument(
         "--output",

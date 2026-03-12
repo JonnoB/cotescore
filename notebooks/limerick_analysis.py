@@ -113,7 +113,8 @@ def _(iou):
 
 @app.cell
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Ground Truth Visualization
 
     The following cells show the bounding boxes at different granularity levels:
@@ -125,7 +126,8 @@ def _(mo):
     - SSU 0: Title
     - SSU 1: Body text in column 1
     - SSU 2: Continuation in column 2
-    """)
+    """
+    )
     return
 
 
@@ -143,14 +145,27 @@ def _(figure_path, gt_boxes, image_array, plt):
     _legend_patches = []
     for _i, _box in enumerate(gt_boxes):
         _color = _colors[_i % len(_colors)]
-        _ax_ssu.add_patch(_patches.Rectangle(
-            (_box["x"], _box["y"]), _box["width"], _box["height"],
-            linewidth=2, edgecolor=_color, facecolor="none", alpha=0.8, linestyle="--",
-        ))
+        _ax_ssu.add_patch(
+            _patches.Rectangle(
+                (_box["x"], _box["y"]),
+                _box["width"],
+                _box["height"],
+                linewidth=2,
+                edgecolor=_color,
+                facecolor="none",
+                alpha=0.8,
+                linestyle="--",
+            )
+        )
         _legend_patches.append(_patches.Patch(color=_color, label=f"SSU {_box['ssu_id']}"))
 
-    _fig_ssu.legend(handles=_legend_patches, loc="lower center", ncol=len(_legend_patches),
-                    fontsize=15, framealpha=0.9)
+    _fig_ssu.legend(
+        handles=_legend_patches,
+        loc="lower center",
+        ncol=len(_legend_patches),
+        fontsize=15,
+        framealpha=0.9,
+    )
     plt.title("Structural Semantic Units", fontsize=25)
     plt.tight_layout()
     plt.savefig(figure_path / "example_ssu.png", bbox_inches="tight", pad_inches=0)
@@ -232,10 +247,17 @@ def _(ground_truth, image_array, np, plt):
 
     for _li, _x, _y, _w, _h in _char_items:
         _color = _colors[_li % len(_colors)]
-        _ax_char.add_patch(_patches.Rectangle(
-            (_x, _y), _w, _h,
-            linewidth=0.5, edgecolor=_color, facecolor="none", alpha=0.7,
-        ))
+        _ax_char.add_patch(
+            _patches.Rectangle(
+                (_x, _y),
+                _w,
+                _h,
+                linewidth=0.5,
+                edgecolor=_color,
+                facecolor="none",
+                alpha=0.7,
+            )
+        )
 
     plt.title("Character-Level Bounding Boxes (colored by line)")
     plt.tight_layout()
@@ -244,7 +266,8 @@ def _(ground_truth, image_array, np, plt):
 
 @app.cell
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## Granularity Mismatch in Bounding Box Evaluation
 
     Traditional detection metrics (Precision/Recall/F1) assume ground truth and predictions
@@ -258,7 +281,8 @@ def _(mo):
 
     The **SSU-based Coverage** metric handles this correctly by measuring what fraction of
     the ground truth area is covered by predictions, regardless of box count.
-    """)
+    """
+    )
     return
 
 
@@ -355,7 +379,8 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     ## COTe Pixel State Visualization
 
     This section provides tools to visualize the pixel-level states used in COTe scoring:
@@ -364,7 +389,8 @@ def _(mo):
     - **Trespass**: Pixels in GT covered by a prediction assigned to a different GT
     - **Overlap+Trespass**: Pixels with multiple predictions, at least one trespassing
     - **Excess**: Pixels outside GT but covered by predictions
-    """)
+    """
+    )
     return
 
 

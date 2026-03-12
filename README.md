@@ -1,6 +1,6 @@
 # cotescore
 
-**Coverage, Overlap, Trespass and Excess (COTe) scoring for Document Layout Analysis**
+**Coverage, Overlap, Trespass and Excess (COTe) score for Document Layout Analysis**
 
 [![PyPI version](https://badge.fury.io/py/cotescore.svg)](https://badge.fury.io/py/cotescore)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -17,7 +17,7 @@ Document Layout Analysis (DLA) is the process of parsing a page into meaningful 
   - **C**overage — how well predictions cover ground-truth regions
   - **O**verlap — redundant predictions within the same ground-truth region
   - **T**respass — predictions that cross semantic boundaries into a different SSU
-  - **E**xcess — A support metric for predictions that fall on background or white-space
+  - **e**xcess — A support metric for predictions that fall on background or white-space
 
 COTe is more informative than traditional metrics, reveals distinct model failure modes, and remains useful even when explicit SSU labels are unavailable.
 

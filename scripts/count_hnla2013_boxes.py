@@ -27,7 +27,7 @@ def main():
         type=str,
         default="data/HNLA2013/groundtruth_unique_ssu",
         help="Path to directory containing PAGE XML files "
-             "(default: data/HNLA2013/groundtruth_unique_ssu)",
+        "(default: data/HNLA2013/groundtruth_unique_ssu)",
     )
     parser.add_argument(
         "--output",
