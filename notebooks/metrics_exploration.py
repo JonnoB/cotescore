@@ -18,21 +18,19 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     # COT Metrics Exploration
 
     This notebook provides an interactive environment to visualize and understand the **Coverage, Overlap, Trespass, and Excess (COTe)** metrics for Document Layout Analysis.
 
     We will visualize how different bounding box layouts affect each metric component.
-    """
-    )
+    """)
     return
 
 
-app._unparsable_cell(
-    r"""
-    %matplotlib inline
+@app.cell
+def _():
+
     import matplotlib.pyplot as plt
     import matplotlib.patches as patches
     from typing import List, Dict, Any
@@ -41,24 +39,24 @@ app._unparsable_cell(
 
     sys.path.append(os.path.abspath('.'))
 
-    from cotscore.metrics import coverage, overlap, trespass, excess, cote_score
-    """,
-    name="_",
-)
+    from cotescore.metrics import cote_score
+    from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+
+    return boxes_to_gt_ssu_map, boxes_to_pred_masks, cote_score, patches, plt
 
 
-app._unparsable_cell(
-    r"""
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Visualization Helper Functions
 
     Definition of `plot_scenario` to visualize bounding boxes and calculate metrics.
-    """,
-    name="_",
-)
+    """)
+    return
 
 
 @app.cell
-def _(cote_score, coverage, excess, overlap, patches, plt, trespass):
+def _(boxes_to_gt_ssu_map, boxes_to_pred_masks, cote_score, patches, plt):
     def plot_scenario(gt_boxes, pred_boxes, title, img_width=100, img_height=100):
         fig, ax = plt.subplots(figsize=(12, 8))
         ax.set_xlim(0, img_width)
@@ -103,32 +101,20 @@ def _(cote_score, coverage, excess, overlap, patches, plt, trespass):
             ax.add_patch(border)
             ax.text(box["x"], box["y"] + box["height"] + 5, f"P{i+1}", color="red", fontsize=10)
 
-        # Normalized metrics
-        c = coverage(pred_boxes, gt_boxes, img_width, img_height)
-        o = overlap(pred_boxes, gt_boxes, img_width, img_height)
-        t = trespass(pred_boxes, gt_boxes, img_width, img_height)
-        e = excess(pred_boxes, gt_boxes, img_width, img_height)
-        cot, _, _, _, _ = cote_score(pred_boxes, gt_boxes, img_width, img_height)
+        # Convert box dicts to mask-based inputs required by the metrics API
+        gt_boxes_with_ids = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
+        gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes_with_ids, img_width, img_height)
+        pred_masks = boxes_to_pred_masks(pred_boxes, img_width, img_height)
 
-        # Raw metrics
-        c_raw = coverage(pred_boxes, gt_boxes, img_width, img_height, return_raw=True)
-        o_raw = overlap(pred_boxes, gt_boxes, img_width, img_height, return_raw=True)
-        t_raw = trespass(pred_boxes, gt_boxes, img_width, img_height, return_raw=True)
-        e_raw = excess(pred_boxes, gt_boxes, img_width, img_height, return_raw=True)
+        cot, c, o, t, e = cote_score(gt_ssu_map, pred_masks)
 
         metrics_text = (
-            f"NORMALIZED METRICS:\n"
             f"Coverage: {c:.3f}\n"
             f"Overlap:  {o:.3f}\n"
             f"Trespass: {t:.3f}\n"
             f"Excess:   {e:.3f}\n"
             f"----------------\n"
-            f"COT Score: {cot:.3f}\n\n"
-            f"RAW METRICS:\n"
-            f"Coverage: {c_raw[0]:.1f} / {c_raw[1]:.1f}\n"
-            f"Overlap:  {o_raw[0]:.3f} / {o_raw[1]:.1f}\n"
-            f"Trespass: {t_raw[0]:.3f} / {t_raw[1]:.3f}\n"
-            f"Excess:   {e_raw[0]:.1f} / {e_raw[1]:.1f}"
+            f"COT Score: {cot:.3f}"
         )
 
         props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
@@ -150,22 +136,22 @@ def _(cote_score, coverage, excess, overlap, patches, plt, trespass):
     return (plot_scenario,)
 
 
-app._unparsable_cell(
-    r"""
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Scenario 1: High Coverage (Ideal)
     A single prediction perfectly covers a single ground truth. Ideal state.
-    """,
-    name="_",
-)
+    """)
+    return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Scenario 2: Partial Coverage
     Prediction only covers half the ground truth.
-    """,
-    name="_",
-)
+    """)
+    return
 
 
 @app.cell
@@ -181,7 +167,7 @@ app._unparsable_cell(
     ## Scenario 3: High Overlap
     Two predictions cover the same area. Overlap penalizes redundancy.
     """,
-    name="_",
+    name="_"
 )
 
 
@@ -196,13 +182,13 @@ def _(plot_scenario):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Scenario 4: High Trespass
     A single prediction is assigned to one Ground Truth but trespasses significantly onto another. This is a merge error.
-    """,
-    name="_",
-)
+    """)
+    return
 
 
 @app.cell
@@ -216,13 +202,13 @@ def _(plot_scenario):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Scenario 6: Mixed COT
     Demonstrates interaction of metrics. Overlap in background (gap between GTs) is IGNORED by overlap metric.
-    """,
-    name="_",
-)
+    """)
+    return
 
 
 @app.cell
@@ -239,13 +225,13 @@ def _(plot_scenario):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Scenario 7: Background Overlap
     Predictions overlap entirely in white space. Overlap metric is 0.0 because overlap must be within a GT region.
-    """,
-    name="_",
-)
+    """)
+    return
 
 
 @app.cell

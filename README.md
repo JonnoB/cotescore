@@ -99,6 +99,8 @@ All functions are importable directly from `cotescore`:
 from cotescore import cote_score, coverage, overlap, iou, mean_iou, cote_class
 ```
 
+For an alternative visual overview of the what the different elements of the COTe score mean please see [`notebooks/metrics_exploration.py`](notebooks/metrics_exploration.py)
+
 ## Visualisation
 
 ```python
