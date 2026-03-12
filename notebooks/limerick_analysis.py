@@ -13,8 +13,6 @@ def _():
     import numpy as np
     import pandas as pd
 
-    from plotnine import aes, geom_hline, geom_line, ggplot, labs, theme, theme_minimal, geom_vline
-
     # Import cote_score metrics for evaluation
     from cotescore.metrics import mean_iou, iou, overlap, cote_score, f1
     from cotescore.visualisation import compute_cote_masks, visualize_cote_states
@@ -46,14 +44,16 @@ def _():
 
 @app.cell
 def _():
-    """Load the pre-generated image and ground truth from the bundled example."""
-    from cotescore import load_limerick_example
+    """Load the pre-generated image, ground truth, and example predictions from the bundled example."""
+    from cotescore import load_limerick_example, extract_ssu_boxes
 
-    ground_truth, image_array = load_limerick_example()
+    ground_truth, image_array, pred_boxes = load_limerick_example()
+    gt_boxes = extract_ssu_boxes(ground_truth)
 
     print(f"Loaded image shape: {image_array.shape}")
     print(f"Loaded GT with {len(ground_truth['stories'])} stories")
-    return ground_truth, image_array
+    print(f"Loaded {len(gt_boxes)} GT boxes and {len(pred_boxes)} prediction boxes")
+    return ground_truth, gt_boxes, image_array, pred_boxes
 
 
 @app.cell
@@ -68,28 +68,6 @@ def _(iou):
                 bbox = line["bbox"]
                 line_boxes.append({"x": bbox[0], "y": bbox[1], "width": bbox[2], "height": bbox[3]})
         return line_boxes
-
-    def extract_ssu_boxes(gt):
-        """Extract SSU-level boxes (union of lines per SSU within each story)."""
-        ssu_boxes = []
-        for story in gt["stories"].values():
-            groups = {}
-            for line in story["lines"]:
-                ssu = line["ssu"]
-                if ssu not in groups:
-                    groups[ssu] = []
-                groups[ssu].append(line["bbox"])
-
-            for ssu in sorted(groups):
-                bboxes = groups[ssu]
-                x_min = min(b[0] for b in bboxes)
-                y_min = min(b[1] for b in bboxes)
-                x_max = max(b[0] + b[2] for b in bboxes)
-                y_max = max(b[1] + b[3] for b in bboxes)
-                ssu_boxes.append(
-                    {"x": x_min, "y": y_min, "width": x_max - x_min, "height": y_max - y_min}
-                )
-        return ssu_boxes
 
     def calculate_detection_metrics(pred_boxes, gt_boxes, iou_threshold=0.5):
         """Calculate TP/FP/FN using IoU-based greedy matching."""
@@ -130,7 +108,7 @@ def _(iou):
 
         return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
 
-    return calculate_detection_metrics, extract_line_boxes, extract_ssu_boxes
+    return calculate_detection_metrics, extract_line_boxes
 
 
 @app.cell
@@ -152,44 +130,24 @@ def _(mo):
 
 
 @app.cell
-def _(figure_path, ground_truth, image_array, plt):
+def _(figure_path, gt_boxes, image_array, plt):
     """Visualize SSU-level bounding boxes colored by SSU id."""
     import matplotlib.patches as _patches
-    import matplotlib.cm as _cm
 
-    # Collect all (ssu, bbox) pairs across all stories
-    _ssu_items = []
-    for _story in ground_truth["stories"].values():
-        _groups = {}
-        for _line in _story["lines"]:
-            _ssu = _line["ssu"]
-            _groups.setdefault(_ssu, []).append(_line["bbox"])
-        for _ssu in sorted(_groups):
-            _bboxes = _groups[_ssu]
-            _x = min(b[0] for b in _bboxes)
-            _y = min(b[1] for b in _bboxes)
-            _x2 = max(b[0] + b[2] for b in _bboxes)
-            _y2 = max(b[1] + b[3] for b in _bboxes)
-            _ssu_items.append((_ssu, _x, _y, _x2 - _x, _y2 - _y))
-
-    _all_ssus = sorted(set(s for s, *_ in _ssu_items))
     _colors = ["red", "blue", "green"]
-    _ssu_to_color = {ssu: _colors[i % len(_colors)] for i, ssu in enumerate(_all_ssus)}
 
     _fig_ssu, _ax_ssu = plt.subplots(figsize=(12, 6.2), dpi=300)
     _ax_ssu.imshow(image_array, cmap="gray", vmin=0, vmax=255)
     _ax_ssu.axis("off")
 
     _legend_patches = []
-    for _ssu, _x, _y, _w, _h in _ssu_items:
-        _color = _ssu_to_color[_ssu]
+    for _i, _box in enumerate(gt_boxes):
+        _color = _colors[_i % len(_colors)]
         _ax_ssu.add_patch(_patches.Rectangle(
-            (_x, _y), _w, _h,
+            (_box["x"], _box["y"]), _box["width"], _box["height"],
             linewidth=2, edgecolor=_color, facecolor="none", alpha=0.8, linestyle="--",
         ))
-
-    for _ssu in _all_ssus:
-        _legend_patches.append(_patches.Patch(color=_ssu_to_color[_ssu], label=f"SSU {_ssu + 1}"))
+        _legend_patches.append(_patches.Patch(color=_color, label=f"SSU {_box['ssu_id']}"))
 
     _fig_ssu.legend(handles=_legend_patches, loc="lower center", ncol=len(_legend_patches),
                     fontsize=15, framealpha=0.9)
@@ -305,26 +263,12 @@ def _(mo):
 
 
 @app.cell
-def _(extract_ssu_boxes, ground_truth):
-    pred_boxes = extract_ssu_boxes(ground_truth)
-    pred_boxes[0]["x"] = 83.33333333333334
-    pred_boxes[0]["y"] = 460
-    pred_boxes[0]["width"] = 750
-    pred_boxes[0]["height"] = 200
-
-    pred_boxes[1]["width"] = 2000
-    pred_boxes.pop(4)
-    return (pred_boxes,)
-
-
-@app.cell
 def _(
     boxes_to_gt_ssu_map,
     boxes_to_pred_masks,
     calculate_detection_metrics,
     cote_score,
     extract_line_boxes,
-    extract_ssu_boxes,
     ground_truth,
     gt_boxes,
     mean_iou,
@@ -333,17 +277,16 @@ def _(
 ):
     """Compute and display granularity comparison table."""
 
-    # Extract line-level and SSU-level boxes
+    # Extract line-level boxes; SSU-level boxes come from gt_boxes (loaded with the example)
     line_boxes = extract_line_boxes(ground_truth)
-    para_boxes = extract_ssu_boxes(ground_truth)
+    para_boxes = gt_boxes
 
     # Get image dimensions
     img_w = int(ground_truth["page"]["width"])
     img_h = int(ground_truth["page"]["height"])
 
     # Convert GT boxes to SSU map (required by new cote_score API)
-    _gt_tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
-    _gt_ssu_map = boxes_to_gt_ssu_map(_gt_tagged, img_w, img_h)
+    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_w, img_h)
 
     # Scenario 1: GT=Line, Pred=Para (paragraph predictions vs line ground truth)
     m1 = calculate_detection_metrics(para_boxes, line_boxes)
@@ -430,21 +373,16 @@ def _(
     boxes_to_gt_ssu_map,
     boxes_to_pred_masks,
     compute_cote_masks,
-    extract_ssu_boxes,
     figure_path,
-    ground_truth,
+    gt_boxes,
     image_array,
     plt,
     pred_boxes,
     visualize_cote_states,
 ):
-    # Extract ground truth boxes at SSU level
-    gt_boxes = extract_ssu_boxes(ground_truth)
-
     # Rasterize GT boxes to an SSU id map and pred boxes to binary masks
     _h, _w = image_array.shape[:2]
-    _gt_tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
-    _gt_ssu_map = boxes_to_gt_ssu_map(_gt_tagged, _w, _h)
+    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, _w, _h)
     _pred_masks = boxes_to_pred_masks(pred_boxes, _w, _h)
 
     # Compute COTe pixel-state masks
@@ -456,7 +394,7 @@ def _(
     fig.legend(handles=patches, loc="lower center", ncol=max(len(patches), 1), framealpha=0.9)
     fig.savefig(figure_path / "example_cote_components", bbox_inches="tight", pad_inches=0)
     plt.show()
-    return (gt_boxes,)
+    return
 
 
 @app.cell
@@ -479,8 +417,7 @@ def _(
     f1_score = f1(pred_boxes, gt_boxes)
 
     # Convert to SSU map and pred masks (required by new cote_score API)
-    _gt_tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
-    _gt_ssu_map = boxes_to_gt_ssu_map(_gt_tagged, img_wx, img_hx)
+    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_wx, img_hx)
     _pred_masks = boxes_to_pred_masks(pred_boxes, img_wx, img_hx)
 
     # Compute COTe score (C - O - T)

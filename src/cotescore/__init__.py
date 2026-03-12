@@ -11,7 +11,7 @@ from .metrics import cote_score, coverage, overlap, iou, mean_iou, cdd
 from .class_metrics import cote_class, coverage_matrix, overlap_matrix, trespass_matrix
 from .types import ClassCOTeResult
 from .visualisation import compute_cote_masks, visualize_cote_states
-from .dataset import load_limerick_example
+from .dataset import load_limerick_example, extract_ssu_boxes
 
 __all__ = [
     "cote_score",
@@ -28,4 +28,5 @@ __all__ = [
     "compute_cote_masks",
     "visualize_cote_states",
     "load_limerick_example",
+    "extract_ssu_boxes",
 ]

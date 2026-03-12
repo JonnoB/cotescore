@@ -652,13 +652,51 @@ class HNLA2013Dataset:
         return self.annotations_by_image[self.images[idx]]
 
 
-def load_limerick_example() -> Tuple[dict, np.ndarray]:
+def extract_ssu_boxes(ground_truth: dict) -> list:
+    """Extract SSU-level bounding boxes from a ground-truth dict.
+
+    For each story, lines are grouped by their ``ssu`` field and the axis-aligned
+    union box is computed. Each returned box is tagged with a 1-based ``ssu_id``
+    and is ready to pass directly to
+    :func:`~cotescore.adapters.boxes_to_gt_ssu_map`.
+
+    Args:
+        ground_truth: Ground-truth dict as returned by :func:`load_limerick_example`,
+            containing a ``"stories"`` key whose values each have a ``"lines"`` list.
+
+    Returns:
+        List of dicts with keys ``x``, ``y``, ``width``, ``height``, ``ssu_id``.
+    """
+    gt_boxes: list = []
+    for story in ground_truth["stories"].values():
+        groups: dict = {}
+        for line in story["lines"]:
+            groups.setdefault(line["ssu"], []).append(line["bbox"])
+        for ssu in sorted(groups):
+            bboxes = groups[ssu]
+            x_min = min(b[0] for b in bboxes)
+            y_min = min(b[1] for b in bboxes)
+            x_max = max(b[0] + b[2] for b in bboxes)
+            y_max = max(b[1] + b[3] for b in bboxes)
+            gt_boxes.append({
+                "x": x_min, "y": y_min,
+                "width": x_max - x_min, "height": y_max - y_min,
+                "ssu_id": len(gt_boxes) + 1,
+            })
+    return gt_boxes
+
+
+def load_limerick_example() -> Tuple[dict, np.ndarray, list]:
     """Load the bundled limerick case study example.
 
     Returns:
-        Tuple of (ground_truth dict, image as numpy array).
+        Tuple of (ground_truth dict, image as numpy array, pred_boxes).
+        ``pred_boxes`` is a list of example prediction bounding boxes in XYWH format.
+        Use :func:`extract_ssu_boxes` to build tagged GT boxes for
+        :func:`~cotescore.adapters.boxes_to_gt_ssu_map`.
     """
     pkg = files("cotescore") / "data" / "limerick_case_study"
     ground_truth = json.loads((pkg / "ground_truth.json").read_text())
     image = np.array(Image.open(pkg / "limerick_image.png"))
-    return ground_truth, image
+    predictions = json.loads((pkg / "predictions.json").read_text())
+    return ground_truth, image, predictions
