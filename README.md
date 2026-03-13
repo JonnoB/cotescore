@@ -2,7 +2,7 @@
 
 **Coverage, Overlap, Trespass and Excess (COTe) score for Document Layout Analysis**
 
-[![PyPI version](https://badge.fury.io/py/cotescore.svg)](https://badge.fury.io/py/cotescore)
+[![PyPI version](https://img.shields.io/pypi/v/cotescore)](https://pypi.org/project/cotescore/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 
@@ -87,7 +87,7 @@ See [`notebooks/limerick_analysis.py`](notebooks/limerick_analysis.py) for a ful
 | `cote_score(gt_ssu_map, preds)` | Returns `(cote, C, O, T, E)` — the full decomposition |
 | `coverage(gt_ssu_map, preds)` | Fraction of GT area correctly covered `[0, 1]` |
 | `overlap(gt_ssu_map, preds)` | Redundant prediction area within GT `[0, ∞)` |
-| `trespass(gt_ssu_map, preds)` | GT area covered by wrong-SSU predictions `[0, 1]` |
+| `trespass(gt_ssu_map, preds)` | GT area covered by wrong-SSU predictions `[0, ∞]` |
 | `cote_class(gt_ssu_map, ssu_to_class, preds)` | Per-class interaction matrices (`ClassCOTeResult`) |
 | `iou(box1, box2)` | Intersection over Union for two boxes |
 | `mean_iou(preds, gt)` | Mean IoU across all GT boxes |
@@ -153,7 +153,7 @@ If you use cotescore in your research, please cite:
 ```bibtex
 @article{bourne2025cote,
   title   = {TODO: paper title},
-  author  = {Bourne, Jonathan and Simbeye, Mwiza},
+  author  = {Bourne, Jonathan, Simbeye, Mwiza and Govia, Ishtar},
   journal = {TODO: venue},
   year    = {TODO},
   url     = {TODO: DOI or arXiv link}
