@@ -3,7 +3,6 @@
 **Coverage, Overlap, Trespass and Excess (COTe) score for Document Layout Analysis**
 
 [![PyPI version](https://img.shields.io/pypi/v/cotescore)](https://pypi.org/project/cotescore/)
-
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 
