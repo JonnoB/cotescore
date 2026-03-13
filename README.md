@@ -87,7 +87,7 @@ See [`notebooks/limerick_analysis.py`](notebooks/limerick_analysis.py) for a ful
 | `cote_score(gt_ssu_map, preds)` | Returns `(cote, C, O, T, E)` — the full decomposition |
 | `coverage(gt_ssu_map, preds)` | Fraction of GT area correctly covered `[0, 1]` |
 | `overlap(gt_ssu_map, preds)` | Redundant prediction area within GT `[0, ∞)` |
-| `trespass(gt_ssu_map, preds)` | GT area covered by wrong-SSU predictions `[0, 1]` |
+| `trespass(gt_ssu_map, preds)` | GT area covered by wrong-SSU predictions `[0, ∞]` |
 | `cote_class(gt_ssu_map, ssu_to_class, preds)` | Per-class interaction matrices (`ClassCOTeResult`) |
 | `iou(box1, box2)` | Intersection over Union for two boxes |
 | `mean_iou(preds, gt)` | Mean IoU across all GT boxes |
