@@ -153,7 +153,7 @@ If you use cotescore in your research, please cite:
 ```bibtex
 @article{bourne2025cote,
   title   = {TODO: paper title},
-  author  = {Bourne, Jonathan and Simbeye, Mwiza},
+  author  = {Bourne, Jonathan, Simbeye, Mwiza and Govia, Ishtar},
   journal = {TODO: venue},
   year    = {TODO},
   url     = {TODO: DOI or arXiv link}
