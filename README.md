@@ -150,12 +150,16 @@ If you have questions, find a bug, or want to request a feature, please [open an
 
 If you use cotescore in your research, please cite:
 
+Bourne, Jonathan, Mwiza Simbeye, and Ishtar Govia. “The COTe Score: A Decomposable Framework for Evaluating Document Layout Analysis Models.” arXiv:2603.12718. Preprint, arXiv, March 13, 2026. https://doi.org/10.48550/arXiv.2603.12718.
+
+
 ```bibtex
-@article{bourne2025cote,
-  title   = {TODO: paper title},
-  author  = {Bourne, Jonathan, Simbeye, Mwiza and Govia, Ishtar},
-  journal = {TODO: venue},
-  year    = {TODO},
-  url     = {TODO: DOI or arXiv link}
+@misc{bourne2026cote,
+  title         = {The {COTe} Score: A Decomposable Framework for Evaluating {Document Layout Analysis} Models},
+  author        = {Bourne, Jonathan and Simbeye, Mwiza and Govia, Ishtar},
+  year          = {2026},
+  month         = mar,
+  publisher     = {arXiv},
+  doi           = {10.48550/arXiv.2603.12718},
 }
 ```
