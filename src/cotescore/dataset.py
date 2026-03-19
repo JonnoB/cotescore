@@ -699,7 +699,7 @@ def load_limerick_example() -> Tuple[dict, np.ndarray, list]:
         Use :func:`extract_ssu_boxes` to build tagged GT boxes for
         :func:`~cotescore.adapters.boxes_to_gt_ssu_map`.
     """
-    pkg = files("cotescore") / "data" / "limerick_case_study"
+    pkg = files("cotescore") / "assets" / "limerick_case_study"
     ground_truth = json.loads((pkg / "ground_truth.json").read_text())
     image = np.array(Image.open(pkg / "limerick_image.png"))
     predictions = json.loads((pkg / "predictions.json").read_text())

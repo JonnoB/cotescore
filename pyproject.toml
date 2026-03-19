@@ -84,7 +84,7 @@ Repository = "https://github.com/JonnoB/cot_analysis"
 where = ["src"]
 
 [tool.setuptools.package-data]
-cotescore = ["data/**/*"]
+cotescore = ["assets/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
