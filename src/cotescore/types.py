@@ -56,22 +56,62 @@ class TokenPositions:
 
 @dataclass(frozen=True)
 class CDDDecomposition:
-    """Four-way CDD decomposition result. All values are sqrt-JSD in [0, 1].
+    """Four-way CDD decomposition result.
+
+    Values are produced by a pluggable metric function (default: sqrt-JSD).
+    Any component whose required keys were absent from the input dict is None.
 
     Valid at both character and word level depending on which TokenPositions
     and token lists were used to build the input distributions.
 
     Attributes:
-        d_pars:  CDD(R || Q) — parsing error.
-        d_ocr:   CDD(S* || Q) — OCR error on GT regions.
-        d_int:   CDD(S || R)  — interaction error.
-        d_total: CDD(S || Q)  — total end-to-end error.
+        d_pars:  metric(R, Q) — parsing error.
+        d_ocr:   metric(S*, Q) — OCR error on GT regions.
+        d_int:   metric(S, R)  — interaction error.
+        d_total: metric(S, Q)  — total end-to-end error.
     """
 
-    d_pars: float
-    d_ocr: float
-    d_int: float
-    d_total: float
+    d_pars: Optional[float]
+    d_ocr: Optional[float]
+    d_int: Optional[float]
+    d_total: Optional[float]
+
+
+@dataclass(frozen=True)
+class SpACERDecomposition:
+    """Four-way SpACER decomposition result with macro and micro variants.
+
+    Each of the four error components is computed at both macro (page-level
+    deletion) and micro (per-box deletion) granularity. Both values are
+    produced simultaneously as the computation is cheap.
+
+    Any component whose required keys were absent from the input dict is None.
+
+    Keys map to distributions as follows:
+        "gt"      -> Q  (full ground truth)
+        "parsing" -> R  (GT tokens captured by the parser)
+        "ocr"     -> S* (OCR output on GT regions)
+        "total"   -> S  (OCR output on predicted regions)
+
+    Attributes:
+        d_pars_macro:  SpACER_macro(R, Q) — parsing error, page-level D.
+        d_pars_micro:  SpACER_micro(R, Q) — parsing error, box-level D.
+        d_ocr_macro:   SpACER_macro(S*, Q) — OCR error, page-level D.
+        d_ocr_micro:   SpACER_micro(S*, Q) — OCR error, box-level D.
+        d_int_macro:   SpACER_macro(S, R)  — interaction error, page-level D.
+        d_int_micro:   SpACER_micro(S, R)  — interaction error, box-level D.
+        d_total_macro: SpACER_macro(S, Q)  — total error, page-level D.
+        d_total_micro: SpACER_micro(S, Q)  — total error, box-level D.
+    """
+
+    d_pars_macro: Optional[float]
+    d_pars_micro: Optional[float]
+    d_ocr_macro: Optional[float]
+    d_ocr_micro: Optional[float]
+    d_int_macro: Optional[float]
+    d_int_micro: Optional[float]
+    d_total_macro: Optional[float]
+    d_total_micro: Optional[float]
 
 
 @dataclass

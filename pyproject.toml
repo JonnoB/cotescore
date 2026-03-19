@@ -120,5 +120,6 @@ ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
+    "marimo>=0.17.6",
     "pytest>=8.4.2",
 ]

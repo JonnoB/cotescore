@@ -1,169 +1,109 @@
 
 from collections import Counter
-from typing import List, Dict, Any, Union, Tuple, Optional, Iterable, Sequence, overload
+from typing import Callable, List, Dict, Union, Tuple, Optional
 import numpy as np
-import collections
 
-from cotescore.types import MaskInstance, TokenPositions, CDDDecomposition
-from cotescore.adapters import calculate_intersection_area as _calculate_intersection_area
-from cotescore._core import (
-    _as_pred_masks,
-    _check_gt_map,
-    _ms_mask,
-    _area_s,
-    _compose_pred_count,
-    _owner_ssu_id,
-)
-from cotescore._distributions import build_Q, build_S, build_S_star, build_R
+from cotescore.types import CDDDecomposition, SpACERDecomposition
 
 
 
 # =============================================================================
-# The Character Distribution Divergence
-#
-# This is basically a wrapper around the jensen-shannon divergence
-# which has been implemented using basic shannon entropy.
-#
+# Token helpers
 # =============================================================================
 
 
-def shannon_entropy(p):
-    """
-    Calculates the Shannon Entropy for a probability distribution.
+def text_to_counter(text: Union[str, List[str]], mode: str = "char") -> Counter:
+    """Build a token-frequency Counter from text.
+
     Args:
-        p (np.ndarray): A 1D numpy array of probabilities (must sum to 1).
+        text: A single string or a list of strings (e.g. per-box OCR output).
+              Lists are concatenated before counting.
+        mode: ``'char'`` (default) counts individual characters;
+              ``'word'`` splits on whitespace and counts word tokens.
+
     Returns:
-        float: The Shannon Entropy in bits.
+        A Counter mapping token -> frequency.
+    """
+    if isinstance(text, list):
+        joined = "".join(text) if mode == "char" else " ".join(text)
+    else:
+        joined = text
+
+    if mode == "char":
+        return Counter(joined)
+    elif mode == "word":
+        return Counter(joined.split())
+    else:
+        raise ValueError(f"mode must be 'char' or 'word', got {mode!r}")
+
+
+# =============================================================================
+# Distribution metrics
+# =============================================================================
+
+
+def shannon_entropy(p: np.ndarray) -> float:
+    """Shannon entropy of a probability distribution.
+
+    Args:
+        p: 1D array of probabilities (must sum to 1).
+
+    Returns:
+        Entropy in bits.
     """
     p_nonzero = p[p > 0]
-    return -np.sum(p_nonzero * np.log2(p_nonzero))
+    return float(-np.sum(p_nonzero * np.log2(p_nonzero)))
 
 
-def jensen_shannon_divergence(p, q):
-    """
-    Calculates the Jensen-Shannon Divergence between two probability distributions.
+def jensen_shannon_divergence(p: np.ndarray, q: np.ndarray) -> float:
+    """Jensen-Shannon Divergence between two probability distributions.
+
     Args:
-        p (np.ndarray): A 1D numpy array for the first distribution.
-        q (np.ndarray): A 1D numpy array for the second distribution.
-                         p and q must be of the same length.
+        p: 1D probability array.
+        q: 1D probability array, same length as p.
+
     Returns:
-        float: The JSD value.
+        JSD value in [0, 1].
     """
-    p = np.asarray(p)
-    q = np.asarray(q)
+    p = np.asarray(p, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64)
 
     if not np.isclose(p.sum(), 1.0) and p.sum() > 0:
         p = p / p.sum()
     if not np.isclose(q.sum(), 1.0) and q.sum() > 0:
         q = q / q.sum()
 
-    # Handle cases where a distribution might be all zeros after initial conversion (e.g., empty text)
-    # If a distribution sums to 0, it means it has no characters, so its probabilities are all 0.
-    # The JSD definition assumes valid probability distributions.
-    # We ensure p and q are of the same length.
     if p.sum() == 0 and q.sum() == 0:
-        return 0.0  # Both empty, no divergence
+        return 0.0
     elif p.sum() == 0:
-        p = np.zeros_like(q)  # Make p a zero-distribution of same size as q
+        p = np.zeros_like(q)
     elif q.sum() == 0:
-        q = np.zeros_like(p)  # Make q a zero-distribution of same size as p
+        q = np.zeros_like(p)
 
     m = 0.5 * (p + q)
-    jsd = shannon_entropy(m) - 0.5 * (shannon_entropy(p) + shannon_entropy(q))
-
-    return jsd
+    return float(shannon_entropy(m) - 0.5 * (shannon_entropy(p) + shannon_entropy(q)))
 
 
-def cdd(gt_text_list, ocr_text_list):
-    """
-    Calculates the Character Distribution Divergence (CDD) between ground truth
-    and OCR output, which is essentially the Jensen-Shannon Divergence of
-    their character frequency distributions.
+def jsd_distance(p: Counter, q: Counter) -> float:
+    """sqrt-JSD between two token-frequency Counters.
 
-    Args:
-        gt_text_list (list of str): A list of strings representing the ground truth text.
-        ocr_text_list (list of str): A list of strings representing the OCR output text.
-
-    Returns:
-        tuple: A tuple containing:
-            - float: The CDD (Jensen-Shannon Divergence) value.
-            - dict: A dictionary where keys are unique characters and values
-                    are lists/tuples of [gt_count, ocr_count].
-    """
-    # 1. Flatten the lists of strings into single strings
-    gt_full_text = "".join(gt_text_list)
-    ocr_full_text = "".join(ocr_text_list)
-
-    # 2. Count character frequencies
-    gt_counts = collections.Counter(gt_full_text)
-    ocr_counts = collections.Counter(ocr_full_text)
-
-    # 3. Identify all unique characters present in either text
-    # This step is still necessary to define the shared vocabulary and order.
-    all_unique_chars = sorted(list(set(gt_counts.keys()).union(set(ocr_counts.keys()))))
-
-    # Handle cases where both texts might be completely empty
-    if not all_unique_chars:
-        return 0.0, {}, []
-
-    # 4. Create aligned count arrays using list comprehensions
-    # This is more efficient than a manual for loop for filling arrays.
-    gt_aligned_counts_list = [gt_counts.get(char, 0) for char in all_unique_chars]
-    ocr_aligned_counts_list = [ocr_counts.get(char, 0) for char in all_unique_chars]
-
-    gt_aligned_counts = np.array(gt_aligned_counts_list, dtype=int)
-    ocr_aligned_counts = np.array(ocr_aligned_counts_list, dtype=int)
-
-    # 5. Create the character counts dictionary using a dictionary comprehension
-    # This is also more efficient for constructing the dictionary.
-    char_counts_dict = {
-        char: [gt_counts.get(char, 0), ocr_counts.get(char, 0)] for char in all_unique_chars
-    }
-
-    # 6. Convert counts to probability distributions
-    gt_total = np.sum(gt_aligned_counts)
-    ocr_total = np.sum(ocr_aligned_counts)
-
-    # If a total is zero, it means no characters of that type.
-    # This means the distribution is effectively all zeros, which will result in 0 entropy.
-    p_gt = (
-        gt_aligned_counts / gt_total
-        if gt_total > 0
-        else np.zeros_like(gt_aligned_counts, dtype=float)
-    )
-    p_ocr = (
-        ocr_aligned_counts / ocr_total
-        if ocr_total > 0
-        else np.zeros_like(ocr_aligned_counts, dtype=float)
-    )
-
-    # 7. Calculate JSD
-    cdd_value = np.sqrt(jensen_shannon_divergence(p_gt, p_ocr))
-
-    return cdd_value, char_counts_dict
-
-
-# =============================================================================
-# CDD Decomposition
-# =============================================================================
-
-
-def _counters_to_cdd(counter_p: Counter, counter_q: Counter) -> float:
-    """Compute sqrt(JSD) between two token-frequency Counter objects.
+    The default metric for :func:`cdd_decomp`. Any callable with the same
+    signature ``(Counter, Counter) -> float`` can be substituted, e.g.
+    total variation distance, earthmover distance, or angular distance.
 
     Args:
-        counter_p: First token frequency distribution.
-        counter_q: Second token frequency distribution.
+        p: First token frequency Counter.
+        q: Second token frequency Counter.
 
     Returns:
-        CDD value (sqrt-JSD) in [0, 1]. Returns 0.0 when both are empty.
+        sqrt-JSD value in [0, 1].
     """
-    all_tokens = sorted(set(counter_p) | set(counter_q))
+    all_tokens = sorted(set(p) | set(q))
     if not all_tokens:
         return 0.0
 
-    p_arr = np.array([counter_p.get(t, 0) for t in all_tokens], dtype=np.float64)
-    q_arr = np.array([counter_q.get(t, 0) for t in all_tokens], dtype=np.float64)
+    p_arr = np.array([p.get(t, 0) for t in all_tokens], dtype=np.float64)
+    q_arr = np.array([q.get(t, 0) for t in all_tokens], dtype=np.float64)
 
     p_total = p_arr.sum()
     q_total = q_arr.sum()
@@ -174,92 +114,223 @@ def _counters_to_cdd(counter_p: Counter, counter_q: Counter) -> float:
     return float(np.sqrt(jensen_shannon_divergence(p_dist, q_dist)))
 
 
-def cdd_decompose(
-    Q: Counter,
-    R: Counter,
-    S_star: Counter,
-    S: Counter,
-) -> CDDDecomposition:
-    """Compute the four-way CDD decomposition from pre-built distributions.
+# =============================================================================
+# SpACER / SpAWER
+#
+# Count-based metric, analogous to CER. Kept deliberately separate from the
+# distribution-based CDD metrics: SpACER operates on raw token counts, not
+# normalised probability distributions.
+#
+# =============================================================================
 
-    Token-agnostic: works at character or word level depending on how the
-    input Counters were built. Use the builders in cotescore._distributions
-    to construct Q, R, S_star, and S.
+
+def _spacer_counts(
+    ref_boxes: List[Counter],
+    pred_boxes: List[Counter],
+) -> Tuple[float, float, float, float]:
+    """Compute raw SpACER components from per-box token-frequency Counters.
 
     Args:
-        Q:      GT token distribution (from build_Q).
-        R:      Parsed GT token distribution (from build_R).
-        S_star: OCR-on-GT-regions distribution (from build_S_star).
-        S:      OCR-on-pred-regions distribution (from build_S).
+        ref_boxes:  Per-box reference Counters (ground truth).
+        pred_boxes: Per-box prediction Counters (OCR output).
+                    Must have the same length as ref_boxes.
 
     Returns:
-        CDDDecomposition with d_pars, d_ocr, d_int, d_total.
+        Tuple of (E_hat, C, D_macro, D_micro) where:
+            E_hat   — L1 norm of element-wise count differences (aggregated).
+            C       — total token count in the reference.
+            D_macro — max(0, total_ref - total_pred), page-level deletion count.
+            D_micro — sum over boxes of max(0, ref_j - pred_j), box-level deletions.
     """
+    agg_ref: Counter = Counter()
+    agg_pred: Counter = Counter()
+    D_micro = 0.0
+
+    for ref_c, pred_c in zip(ref_boxes, pred_boxes):
+        agg_ref += ref_c
+        agg_pred += pred_c
+        ref_total = sum(ref_c.values())
+        pred_total = sum(pred_c.values())
+        D_micro += max(0, ref_total - pred_total)
+
+    all_tokens = set(agg_ref) | set(agg_pred)
+    E_hat = sum(abs(agg_ref.get(t, 0) - agg_pred.get(t, 0)) for t in all_tokens)
+
+    C = float(sum(agg_ref.values()))
+    D_macro = float(max(0, sum(agg_ref.values()) - sum(agg_pred.values())))
+
+    return float(E_hat), C, D_macro, float(D_micro)
+
+
+def _spacer_score(D: float, E_hat: float, C: float) -> float:
+    """Apply the SpACER formula: (D + E_hat) / (2 * C)."""
+    if C == 0:
+        return 0.0
+    return (D + E_hat) / (2.0 * C)
+
+
+def spacer(reference: Counter, prediction: Counter) -> float:
+    """Macro SpACER between two token-frequency Counters.
+
+    Treats both Counters as single-box inputs so D is computed at page level.
+    Equivalent to ``spacer_micro([reference], [prediction])``.
+
+    Args:
+        reference:  GT token-frequency Counter.
+        prediction: Predicted token-frequency Counter.
+
+    Returns:
+        Macro SpACER score. 0.0 when both are empty. Can exceed 1.0.
+    """
+    E_hat, C, D_macro, _ = _spacer_counts([reference], [prediction])
+    return _spacer_score(D_macro, E_hat, C)
+
+
+def spacer_micro(
+    ref_boxes: List[Counter],
+    pred_boxes: List[Counter],
+) -> float:
+    """Micro SpACER from per-box token-frequency Counters.
+
+    Deletions are accumulated per box before summing, preventing insertions
+    in one box from masking deletions in another.
+
+    Args:
+        ref_boxes:  Per-box GT Counters.
+        pred_boxes: Per-box prediction Counters (same length as ref_boxes).
+
+    Returns:
+        Micro SpACER score. 0.0 when all boxes are empty. Can exceed 1.0.
+    """
+    E_hat, C, _, D_micro = _spacer_counts(ref_boxes, pred_boxes)
+    return _spacer_score(D_micro, E_hat, C)
+
+
+# =============================================================================
+# Decomposition API
+#
+# Both cdd_decomp and spacer_decomp accept the same named-dict interface:
+#
+#   {
+#     "gt":      str | List[str] | Counter,   ->  Q  (full ground truth)
+#     "parsing": str | List[str] | Counter,   ->  R  (GT tokens in predicted regions)
+#     "ocr":     str | List[str] | Counter,   ->  S* (OCR on GT regions)
+#     "total":   str | List[str] | Counter,   ->  S  (OCR on predicted regions)
+#   }
+#
+# Counter values are used directly (no text_to_counter call), allowing
+# distributions built from spatial data (e.g. build_R) to be passed in.
+#
+# Missing keys yield None for the components that require them:
+#
+#   d_pars  requires "gt" and "parsing"
+#   d_ocr   requires "gt" and "ocr"
+#   d_int   requires "parsing" and "total"
+#   d_total requires "gt" and "total"
+#
+# =============================================================================
+
+
+def _normalise_box_texts(value: Union[str, List[str]]) -> List[str]:
+    """Wrap a plain string in a list; leave a list unchanged."""
+    return [value] if isinstance(value, str) else value
+
+
+def cdd_decomp(
+    named_dict: Dict[str, Union[str, List[str], Counter]],
+    metric: Callable[[Counter, Counter], float] = jsd_distance,
+    mode: str = "char",
+) -> CDDDecomposition:
+    """Compute the four-way CDD decomposition from a named text dictionary.
+
+    Args:
+        named_dict: Dict with any subset of keys ``"gt"``, ``"parsing"``,
+                    ``"ocr"``, ``"total"``. Values may be:
+
+                    - A plain string or list of strings — converted via
+                      :func:`text_to_counter` using ``mode``.
+                    - A pre-built ``Counter`` — used directly. This is
+                      necessary when a distribution was built from spatial
+                      data (e.g. ``build_R`` from :mod:`cotescore._distributions`)
+                      and cannot be reconstructed from text alone.
+
+        metric:     Callable ``(Counter, Counter) -> float`` used to compare
+                    each pair of distributions. Defaults to :func:`jsd_distance`
+                    (sqrt-JSD). Any symmetric distribution distance can be
+                    substituted (TVD, earthmover, angular distance, etc.).
+        mode:       ``'char'`` (default) or ``'word'``. Passed to
+                    :func:`text_to_counter` when building Counters from text.
+                    Ignored for values that are already Counters.
+
+    Returns:
+        :class:`CDDDecomposition` with None for any component whose required
+        keys were absent.
+    """
+    counters: Dict[str, Counter] = {
+        k: v if isinstance(v, Counter) else text_to_counter(v, mode)
+        for k, v in named_dict.items()
+    }
+
+    def _cmp(a: str, b: str) -> Optional[float]:
+        if a in counters and b in counters:
+            return metric(counters[a], counters[b])
+        return None
+
     return CDDDecomposition(
-        d_pars=_counters_to_cdd(R, Q),
-        d_ocr=_counters_to_cdd(S_star, Q),
-        d_int=_counters_to_cdd(S, R),
-        d_total=_counters_to_cdd(S, Q),
+        d_pars=_cmp("parsing", "gt"),
+        d_ocr=_cmp("ocr", "gt"),
+        d_int=_cmp("total", "parsing"),
+        d_total=_cmp("total", "gt"),
     )
 
 
-def cdd_decompose_from_raw(
-    token_positions: TokenPositions,
-    pred_masks: Sequence[Union[np.ndarray, MaskInstance]],
-    pred_token_lists: Sequence[Sequence[str]],
-    gt_token_lists: Sequence[Sequence[str]],
-) -> CDDDecomposition:
-    """Compute full CDD decomposition from raw inputs.
+def spacer_decomp(
+    named_dict: Dict[str, Union[str, List[str]]],
+    mode: str = "char",
+) -> SpACERDecomposition:
+    """Compute the four-way SpACER decomposition from a named text dictionary.
 
-    Builds all four distributions then delegates to cdd_decompose.
-    The caller is responsible for pre-splitting text into token lists:
-      - Character level: ``[list(text) for text in texts]``
-      - Word level:      ``[text.split() for text in texts]``
+    Both macro and micro variants are returned for each component since they
+    share the same intermediate computation.
 
     Args:
-        token_positions:  GT token pixel positions.
-        pred_masks:       Predicted region masks (same coordinate space).
-        pred_token_lists: Pre-split token lists, one per predicted region.
-        gt_token_lists:   Pre-split token lists, one per GT region.
+        named_dict: Dict with any subset of keys ``"gt"``, ``"parsing"``,
+                    ``"ocr"``, ``"total"``. Values are plain strings or
+                    per-box lists of strings. Per-box lists are required for
+                    a meaningful micro score; plain strings produce identical
+                    macro and micro values.
+        mode:       ``'char'`` (default) or ``'word'``. Passed to
+                    :func:`text_to_counter` when building per-box Counters.
 
     Returns:
-        CDDDecomposition with all four error components.
+        :class:`SpACERDecomposition` with None for any component whose
+        required keys were absent.
     """
-    Q = build_Q(token_positions)
-    R = build_R(token_positions, pred_masks)
-    S_star = build_S_star(gt_token_lists)
-    S = build_S(pred_token_lists)
-    return cdd_decompose(Q, R, S_star, S)
+    box_counters: Dict[str, List[Counter]] = {
+        k: [text_to_counter(box, mode) for box in _normalise_box_texts(v)]
+        for k, v in named_dict.items()
+    }
 
+    def _cmp(ref_key: str, pred_key: str) -> Tuple[Optional[float], Optional[float]]:
+        if ref_key not in box_counters or pred_key not in box_counters:
+            return None, None
+        E_hat, C, D_macro, D_micro = _spacer_counts(
+            box_counters[ref_key], box_counters[pred_key]
+        )
+        return _spacer_score(D_macro, E_hat, C), _spacer_score(D_micro, E_hat, C)
 
-def cdd_decompose_low_info(
-    gt_token_lists: Sequence[Sequence[str]],
-    pred_token_lists: Sequence[Sequence[str]],
-    gt_ocr_token_lists: Sequence[Sequence[str]],
-) -> tuple[float, float, float]:
-    """Compute CDD components without character position information.
+    pars_mac, pars_mic = _cmp("gt", "parsing")
+    ocr_mac, ocr_mic = _cmp("gt", "ocr")
+    int_mac, int_mic = _cmp("parsing", "total")
+    tot_mac, tot_mic = _cmp("gt", "total")
 
-    In low-information mode, R is unavailable so d_pars and d_int cannot
-    be computed. Only d_total, d_ocr, and a triage ratio are returned.
-
-    The triage heuristic (from the paper):
-      - d_total << 2 * d_ocr  → OCR is the main error source
-      - d_total >> 2 * d_ocr  → Parsing is the main error source
-
-    Args:
-        gt_token_lists:      Pre-split GT token lists (used to build Q).
-        pred_token_lists:    Pre-split token lists from OCR on predicted regions.
-        gt_ocr_token_lists:  Pre-split token lists from OCR on GT regions.
-
-    Returns:
-        Tuple of (d_total, d_ocr, triage_ratio) where
-        triage_ratio = d_total / (2 * d_ocr), or inf if d_ocr == 0.
-    """
-    Q: Counter = Counter(token for tokens in gt_token_lists for token in tokens)
-    S = build_S(pred_token_lists)
-    S_star = build_S_star(gt_ocr_token_lists)
-
-    d_total = _counters_to_cdd(S, Q)
-    d_ocr = _counters_to_cdd(S_star, Q)
-    triage = d_total / (2.0 * d_ocr) if d_ocr > 0.0 else float("inf")
-    return d_total, d_ocr, triage
+    return SpACERDecomposition(
+        d_pars_macro=pars_mac,
+        d_pars_micro=pars_mic,
+        d_ocr_macro=ocr_mac,
+        d_ocr_micro=ocr_mic,
+        d_int_macro=int_mac,
+        d_int_micro=int_mic,
+        d_total_macro=tot_mac,
+        d_total_micro=tot_mic,
+    )

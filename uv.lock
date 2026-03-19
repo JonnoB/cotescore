@@ -866,6 +866,8 @@ paddle-benchmark = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "marimo", version = "0.17.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "marimo", version = "0.18.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
@@ -910,7 +912,10 @@ requires-dist = [
 provides-extras = ["dev", "benchmarks", "models", "paddle-benchmark"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.4.2" }]
+dev = [
+    { name = "marimo", specifier = ">=0.17.6" },
+    { name = "pytest", specifier = ">=8.4.2" },
+]
 
 [[package]]
 name = "coverage"
