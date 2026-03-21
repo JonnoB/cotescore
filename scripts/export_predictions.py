@@ -62,6 +62,12 @@ def main():
         help="Path to ground truth directory (required for spiritualist)",
     )
     parser.add_argument(
+        "--image-ext",
+        type=str,
+        default="jpg",
+        help="Image file extension (default: jpg)",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
