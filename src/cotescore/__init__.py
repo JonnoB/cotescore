@@ -22,6 +22,7 @@ from .class_metrics import cote_class, coverage_matrix, overlap_matrix, trespass
 from .types import ClassCOTeResult, TokenPositions, CDDDecomposition, SpACERDecomposition
 from .visualisation import compute_cote_masks, visualize_cote_states
 from .dataset import load_limerick_example, extract_ssu_boxes
+from .alto_ssu_tagger import ALTOSSUTagger, assign_alto_ssu
 
 __all__ = [
     "cote_score",
@@ -49,4 +50,6 @@ __all__ = [
     "visualize_cote_states",
     "load_limerick_example",
     "extract_ssu_boxes",
+    "ALTOSSUTagger",
+    "assign_alto_ssu",
 ]
