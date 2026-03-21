@@ -23,7 +23,7 @@ from tqdm import tqdm
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from cotescore.dataset import NCSEDataset
+from cotescore.dataset import NCSEDataset, SpiritualistDataset
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -49,10 +49,23 @@ def main():
         help="Path to dataset directory (default: data/ncse)",
     )
     parser.add_argument(
+        "--dataset-name",
+        type=str,
+        default="ncse",
+        choices=["ncse", "spiritualist"],
+        help="Dataset to export predictions for (default: ncse)",
+    )
+    parser.add_argument(
+        "--groundtruth",
+        type=str,
+        default=None,
+        help="Path to ground truth directory (required for spiritualist)",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
-        help="Output CSV path (default: results/{model}_predictions.csv)",
+        help="Output CSV path (default: results/{dataset_name}_{model}_predictions.csv)",
     )
     parser.add_argument(
         "--device",
@@ -80,7 +93,7 @@ def main():
         sys.exit(1)
 
     if args.output is None:
-        output_path = Path("results") / f"{args.model.replace('-', '_')}_predictions.csv"
+        output_path = Path("results") / f"{args.dataset_name}_{args.model.replace('-', '_')}_predictions.csv"
     else:
         output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,12 +130,26 @@ def main():
 
     # Load dataset
     logger.info(f"Loading dataset from {dataset_path}")
-    dataset = NCSEDataset(
-        dataset_path,
-        split="test",
-        csv_filename=args.csv_filename,
-        images_subdir=args.images_subdir,
-    )
+    if args.dataset_name == "spiritualist":
+        if not args.groundtruth:
+            logger.error("--groundtruth is required for the spiritualist dataset")
+            sys.exit(1)
+        groundtruth_path = Path(args.groundtruth)
+        if not groundtruth_path.exists():
+            logger.error(f"Ground truth path does not exist: {groundtruth_path}")
+            sys.exit(1)
+        dataset = SpiritualistDataset(
+            images_path=dataset_path,
+            groundtruth_path=groundtruth_path,
+            image_ext=args.image_ext,
+        )
+    else:
+        dataset = NCSEDataset(
+            dataset_path,
+            split="test",
+            csv_filename=args.csv_filename,
+            images_subdir=args.images_subdir,
+        )
     dataset.load()
     logger.info(f"Dataset loaded: {len(dataset)} images")
 
