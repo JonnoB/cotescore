@@ -21,7 +21,7 @@ except ImportError:
 
 from cotescore.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset, SpiritualistDataset
 from cotescore.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cotescore.metrics import (
+from cotescore.layout import (
     coverage,
     overlap,
     trespass,
