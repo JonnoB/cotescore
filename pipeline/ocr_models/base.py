@@ -14,6 +14,10 @@ class OCRModel(ABC):
     def run(self, crop: Image.Image) -> str:
         """Run OCR on a PIL image crop. Returns extracted text string."""
 
+    def run_batch(self, crops: list) -> list:
+        """Run OCR on a list of crops. Override for GPU-efficient batching."""
+        return [self.run(crop) for crop in crops]
+
 
 class MockOCR(OCRModel):
     """Test stub — returns a fixed string regardless of input."""

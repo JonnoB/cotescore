@@ -25,6 +25,7 @@ class ExperimentConfig:
     layout_device: str
     ocr_model: str
     ocr_config: Dict[str, Any]
+    ocr_batch_size: int
     output_dir: Path
     output_parquet: bool
     output_json: bool
@@ -60,6 +61,7 @@ def load_config(path: Path) -> ExperimentConfig:
         layout_device=pred.get("device", "cpu"),
         ocr_model=ocr_model,
         ocr_config=raw["ocr"].get("config") or {},
+        ocr_batch_size=int(raw["ocr"].get("batch_size", 1)),
         output_dir=Path(raw["output"]["dir"]),
         output_parquet=bool(raw["output"].get("parquet", True)),
         output_json=bool(raw["output"].get("json", True)),

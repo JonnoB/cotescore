@@ -13,11 +13,14 @@ class PaddleOCROCR(OCRModel):
     def __init__(self, lang: str = "en", use_gpu: bool = False, **kwargs):
         self._lang = lang
         self._use_gpu = use_gpu
+        self._extra = kwargs  # forwarded to PaddleOCR (e.g. rec_batch_num)
         self._engine = None
 
     def load(self) -> None:
         from paddleocr import PaddleOCR
-        self._engine = PaddleOCR(use_angle_cls=True, lang=self._lang, use_gpu=self._use_gpu)
+        self._engine = PaddleOCR(
+            use_angle_cls=True, lang=self._lang, use_gpu=self._use_gpu, **self._extra
+        )
 
     def run(self, crop: Image.Image) -> str:
         img_array = np.array(crop.convert("RGB"))

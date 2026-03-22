@@ -16,6 +16,8 @@ box_sources:
 
 ocr:
   model: "easyocr"
+  # EasyOCR has no batch API for pre-cropped images — runner batch_size stays 1.
+  batch_size: 1
   config:
     lang:
       - "en"

@@ -16,9 +16,12 @@ box_sources:
 
 ocr:
   model: "paddleocr"
+  # PaddleOCR batches internally via rec_batch_num — runner batch_size stays 1.
+  batch_size: 1
   config:
     lang: "en"
     use_gpu: false
+    rec_batch_num: 6   # internal recognition batch size (CPU default)
 
 output:
   dir: "results/experiments/paddleocr_gt_only"

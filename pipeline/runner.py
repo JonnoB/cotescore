@@ -19,7 +19,6 @@ from cotescore.dataset import SpiritualistDataset
 
 from pipeline.config import ExperimentConfig
 from pipeline.dofns.io import parse_alto_xml, write_json, write_parquet
-from pipeline.dofns.ocr import crop_and_run_ocr
 from pipeline.dofns.transforms import aggregate_page
 
 logger = logging.getLogger(__name__)
@@ -52,6 +51,48 @@ def _make_layout_model(config: ExperimentConfig):
         from models.docling_heron import DoclingLayoutHeron
         return DoclingLayoutHeron(device=config.layout_device)
     raise ValueError(f"Unknown layout model: {config.layout_model}")
+
+
+def _process_batch(records: List[Dict[str, Any]], model, model_name: str) -> List[Dict[str, Any]]:
+    """Crop all images in the batch then run OCR in a single model call."""
+    crops = []
+    valid = []
+    for record in records:
+        try:
+            with Image.open(record["image_path"]) as img:
+                img = img.convert("RGB")
+                iw, ih = img.size
+                x1 = max(0, int(record["x"]))
+                y1 = max(0, int(record["y"]))
+                x2 = min(iw, int(record["x"] + record["width"]))
+                y2 = min(ih, int(record["y"] + record["height"]))
+                if x2 > x1 and y2 > y1:
+                    crops.append(img.crop((x1, y1, x2, y2)).copy())
+                    valid.append(record)
+                else:
+                    logger.warning(f"Zero-area crop for {record.get('box_id')} in {record.get('image_id')}, skipping")
+        except Exception as e:
+            logger.warning(f"Failed to open/crop {record.get('box_id')} in {record.get('image_id')}: {e}")
+
+    if not crops:
+        return []
+
+    try:
+        texts = model.run_batch(crops)
+    except Exception as e:
+        logger.warning(f"Batch OCR failed ({e}), falling back to single-image inference")
+        texts = []
+        for crop in crops:
+            try:
+                texts.append(model.run(crop))
+            except Exception as e2:
+                logger.warning(f"Single OCR also failed: {e2}")
+                texts.append("")
+
+    return [
+        {**record, "ocr_text": text, "ocr_model": model_name, "image_crop": None}
+        for record, text in zip(valid, texts)
+    ]
 
 
 def run_experiment(config: ExperimentConfig) -> None:
@@ -164,23 +205,28 @@ def run_experiment(config: ExperimentConfig) -> None:
         (all_gt_box_records if config.gt_enabled else []) + all_pred_box_records
     )
 
+    batch_size = max(1, config.ocr_batch_size)
+    batches = [all_box_records[i:i + batch_size] for i in range(0, len(all_box_records), batch_size)]
+    n_workers = min(8, len(batches)) if batches else 1
+    logger.info(
+        f"Running OCR on {len(all_box_records)} boxes "
+        f"(batch_size={batch_size}, {len(batches)} batches, {n_workers} workers)"
+    )
+
     ocr_results: List[Dict[str, Any]] = []
-    n_workers = min(8, len(all_box_records)) if all_box_records else 1
-    logger.info(f"Running OCR on {len(all_box_records)} boxes ({n_workers} workers)")
+    boxes_done = 0
 
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         futures = {
-            executor.submit(crop_and_run_ocr, record, ocr_model, config.ocr_model): record
-            for record in all_box_records
+            executor.submit(_process_batch, batch, ocr_model, config.ocr_model): batch
+            for batch in batches
         }
-        done = 0
         for future in as_completed(futures):
-            result = future.result()
-            if result is not None:
-                ocr_results.append(result)
-            done += 1
-            if done % 50 == 0 or done == len(all_box_records):
-                logger.info(f"  OCR progress: {done}/{len(all_box_records)} boxes")
+            results = future.result()
+            ocr_results.extend(results)
+            boxes_done += len(futures[future])
+            if boxes_done % 50 == 0 or boxes_done >= len(all_box_records):
+                logger.info(f"  OCR progress: {boxes_done}/{len(all_box_records)} boxes")
 
     # --- Phase 2: Aggregate per page ---
     logger.info("Aggregating per-page results...")

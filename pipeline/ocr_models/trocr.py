@@ -25,9 +25,13 @@ class TrOCROCR(OCRModel):
         self._model.eval()
 
     def run(self, crop: Image.Image) -> str:
+        return self.run_batch([crop])[0]
+
+    def run_batch(self, crops: list) -> list:
         import torch
-        pixel_values = self._processor(images=crop.convert("RGB"), return_tensors="pt").pixel_values
+        rgb_crops = [c.convert("RGB") for c in crops]
+        pixel_values = self._processor(images=rgb_crops, return_tensors="pt").pixel_values
         pixel_values = pixel_values.to(self._device)
         with torch.no_grad():
             generated_ids = self._model.generate(pixel_values)
-        return self._processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+        return [t.strip() for t in self._processor.batch_decode(generated_ids, skip_special_tokens=True)]

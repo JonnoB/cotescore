@@ -16,9 +16,12 @@ box_sources:
 
 ocr:
   model: "tesseract"
+  # Tesseract is CPU-only and single-threaded per image — no batching benefit.
+  batch_size: 1
   config:
     lang: "eng"
-    psm: 6
+    psm: 7   # single text line — correct for ALTO TextLine crops
+    oem: 3   # LSTM neural net engine (most accurate)
 
 output:
   dir: "results/experiments/tesseract_gt_only"
