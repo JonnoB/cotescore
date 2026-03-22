@@ -94,6 +94,20 @@ class AggregatePerPage(beam.DoFn):
             for b in gt_boxes + pred_boxes
         ]
 
+        cdd_dict = dataclasses.asdict(cdd_result) if cdd_result else None
+        spacer_dict = dataclasses.asdict(spacer_result) if spacer_result else None
+
+        if cdd_dict:
+            logger.info(
+                f"  {image_id} | CDD  d_ocr={cdd_dict['d_ocr']:.4f}  "
+                f"d_pars={cdd_dict['d_pars']}  d_total={cdd_dict['d_total']:.4f}"
+            )
+        if spacer_dict:
+            logger.info(
+                f"  {image_id} | SpACER  d_ocr_macro={spacer_dict['d_ocr_macro']:.4f}  "
+                f"d_total_macro={spacer_dict['d_total_macro']:.4f}"
+            )
+
         yield {
             "image_id": image_id,
             "image_path": qr["image_path"],
@@ -104,6 +118,6 @@ class AggregatePerPage(beam.DoFn):
             "S_star": dict(S_star_counter),
             "S": dict(S_counter),
             "boxes": all_boxes,
-            "cdd": dataclasses.asdict(cdd_result) if cdd_result else None,
-            "spacer": dataclasses.asdict(spacer_result) if spacer_result else None,
+            "cdd": cdd_dict,
+            "spacer": spacer_dict,
         }

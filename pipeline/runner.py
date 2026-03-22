@@ -91,15 +91,18 @@ def run_experiment(config: ExperimentConfig) -> None:
         image_path = Path(sample["image_path"])
         image_id = image_path.stem
 
+        logger.info(f"[{i + 1}/{n}] Parsing {image_id}")
+
         alto_path = config.alto_dir / f"{image_id}.xml"
         if not alto_path.exists():
-            logger.warning(f"No ALTO XML for {image_id}, skipping")
+            logger.warning(f"  No ALTO XML for {image_id}, skipping")
             continue
 
         gt_boxes, token_positions, tl_texts = parse_alto_xml(alto_path, image_path)
         all_gt_box_records.extend(gt_boxes)
 
         Q = build_Q(token_positions)
+        logger.info(f"  GT: {len(gt_boxes)} boxes, {len(token_positions.tokens)} chars, |Q|={sum(Q.values())}")
 
         R: Counter = Counter()
         if config.predicted_enabled and layout_model is not None:
@@ -115,6 +118,7 @@ def run_experiment(config: ExperimentConfig) -> None:
                 ]
                 masks = boxes_to_pred_masks(normalised, w_eval, h_eval, scale=scale)
                 R = build_R(token_positions, masks)
+                logger.info(f"  Predicted: {len(preds)} boxes, |R|={sum(R.values())}")
                 for pred in preds:
                     all_pred_box_records.append({
                         "image_id": image_id,
@@ -132,7 +136,7 @@ def run_experiment(config: ExperimentConfig) -> None:
                         "image_crop": None,
                     })
             except Exception as e:
-                logger.warning(f"Layout prediction failed for {image_id}: {e}")
+                logger.warning(f"  Layout prediction failed for {image_id}: {e}")
 
         all_qr_records.append({
             "image_id": image_id,
@@ -143,8 +147,10 @@ def run_experiment(config: ExperimentConfig) -> None:
         })
 
     logger.info(
-        f"Pre-pipeline: {len(all_gt_box_records)} GT boxes, {len(all_pred_box_records)} pred boxes"
+        f"Pre-pipeline complete: {len(all_qr_records)} pages, "
+        f"{len(all_gt_box_records)} GT boxes, {len(all_pred_box_records)} pred boxes"
     )
+    logger.info("Starting Beam OCR pipeline...")
 
     # --- Phase 1: Beam pipeline (parallel OCR) ---
     page_results: List[dict] = []
@@ -188,14 +194,18 @@ def run_experiment(config: ExperimentConfig) -> None:
 
         results_pc | "Collect" >> beam.Map(page_results.append)
 
-    logger.info(f"Pipeline complete: {len(page_results)} pages processed")
+    logger.info(f"Beam pipeline complete: {len(page_results)} pages processed")
 
     if config.output_json:
+        logger.info(f"Writing JSON to {config.output_dir}/")
         for page in page_results:
             write_json(page, config.output_dir)
-        logger.info(f"JSON written to {config.output_dir}/")
+        logger.info(f"  {len(page_results)} JSON files written")
 
     if config.output_parquet:
         parquet_path = config.output_dir / "results.parquet"
+        logger.info(f"Writing Parquet to {parquet_path}")
         write_parquet(page_results, parquet_path)
-        logger.info(f"Parquet written to {parquet_path}")
+        logger.info(f"  Parquet written ({sum(len(p.get('boxes', [])) for p in page_results)} box rows)")
+
+    logger.info("Done.")

@@ -78,4 +78,7 @@ class CropAndRunOCR(beam.DoFn):
             )
             text = ""
 
+        logger.debug(
+            f"  OCR {record.get('image_id')} | {record.get('box_id')}: {repr(text[:60])}"
+        )
         yield {**record, "ocr_text": text, "ocr_model": self._model_name, "image_crop": None}
