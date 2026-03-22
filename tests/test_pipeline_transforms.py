@@ -51,8 +51,15 @@ def test_crop_clamps_to_image_bounds(test_image):
     dofn = CropImageRegion()
     out = list(dofn.process(record))[0]
     crop = out["image_crop"]
-    assert crop.width <= 200 and crop.height <= 100
-    assert crop.width > 0 and crop.height > 0
+    assert crop.size == (20, 20)  # clamped: x=[180,200], y=[80,100]
+
+
+def test_crop_fully_outside_bounds_yields_nothing(test_image):
+    # Box starts at x=300 on a 200-wide image — fully outside
+    record = _make_record(test_image, x=300, y=0, width=50, height=50)
+    dofn = CropImageRegion()
+    results = list(dofn.process(record))
+    assert results == []
 
 
 def test_crop_preserves_other_fields(test_image):

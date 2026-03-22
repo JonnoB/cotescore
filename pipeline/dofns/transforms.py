@@ -23,10 +23,10 @@ class CropImageRegion(beam.DoFn):
                 x2 = min(iw, int(record["x"] + record["width"]))
                 y2 = min(ih, int(record["y"] + record["height"]))
                 if x2 <= x1 or y2 <= y1:
-                    logger.warning(f"Zero-area crop for box {record['box_id']} in {record['image_id']}, skipping")
+                    logger.warning(f"Zero-area crop for box {record.get('box_id', 'unknown')} in {record.get('image_id', 'unknown')}, skipping")
                     return
                 crop = img.crop((x1, y1, x2, y2)).copy()
         except Exception as e:
-            logger.warning(f"Failed to crop {record['box_id']} in {record['image_id']}: {e}")
+            logger.warning(f"Failed to crop {record.get('box_id', 'unknown')} in {record.get('image_id', 'unknown')}: {e}")
             return
         yield {**record, "image_crop": crop}
