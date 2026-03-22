@@ -1,0 +1,26 @@
+experiment:
+  name: "tesseract_gt_and_yolo"
+  description: "Tesseract OCR on GT boxes (S*) and DocLayout-YOLO predicted boxes (S)"
+
+data:
+  images_dir: "data/the_spiritualist/spiritualist_images"
+  alto_dir: "data/the_spiritualist/ocr_gt_with_ssu"
+  image_ext: "jpg"
+
+box_sources:
+  gt: true
+  predicted:
+    enabled: true
+    layout_model: "yolo"
+    device: "cpu"
+
+ocr:
+  model: "tesseract"
+  config:
+    lang: "eng"
+    psm: 6
+
+output:
+  dir: "results/experiments/tesseract_gt_and_yolo"
+  parquet: true
+  json: true
