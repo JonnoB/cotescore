@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Run a Spiritualist OCR inference experiment from a YAML config."""
 
+import os
+os.environ.setdefault("GRPC_VERBOSITY", "NONE")
+os.environ.setdefault("FLAGS_use_mkldnn", "0")  # disable oneDNN — PIR executor bug in PaddlePaddle 3.x
+
 import argparse
 import logging
 import sys

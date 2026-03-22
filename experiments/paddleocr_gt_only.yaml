@@ -19,7 +19,7 @@ ocr:
   batch_size: 1
   config:
     lang: "en"
-    device: "cpu"
+    device: "cpu:0"
 
 output:
   dir: "results/experiments/paddleocr_gt_only"

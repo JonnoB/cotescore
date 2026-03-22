@@ -14,7 +14,7 @@ class PaddleOCROCR(OCRModel):
     Set device='gpu' for GPU inference, device='cpu' for CPU.
     """
 
-    def __init__(self, lang: str = "en", device: str = "cpu", **kwargs):
+    def __init__(self, lang: str = "en", device: str = "cpu:0", **kwargs):
         self._lang = lang
         self._device = device
         self._extra = kwargs
