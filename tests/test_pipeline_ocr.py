@@ -14,3 +14,10 @@ def test_mock_ocr_returns_string():
 def test_ocr_model_is_abstract():
     with pytest.raises(TypeError):
         OCRModel()  # cannot instantiate abstract class
+
+
+def test_mock_ocr_default_text():
+    model = MockOCR()
+    model.load()
+    img = Image.new("RGB", (10, 10))
+    assert model.run(img) == "mock text"

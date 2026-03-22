@@ -58,7 +58,6 @@ def parse_alto_xml(
             "image_crop": None,
         })
 
-        # Inner String loop for TokenPositions and line text
         line_chars: List[str] = []
         for string_el in tl.findall("alto:String", NS):
             content = string_el.get("CONTENT", "")

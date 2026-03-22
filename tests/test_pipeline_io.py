@@ -16,7 +16,7 @@ def parsed():
 
 
 def test_parse_returns_box_records(parsed):
-    gt_boxes, token_pos, tl_texts = parsed
+    gt_boxes, _, _ = parsed
     assert len(gt_boxes) > 0
     box = gt_boxes[0]
     assert "image_id" in box
