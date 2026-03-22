@@ -1,0 +1,26 @@
+experiment:
+  name: "paddleocr_gpu_gt_only"
+  description: "PaddleOCR on GT TextLine boxes using GPU (S* only, no layout model)"
+
+data:
+  images_dir: "data/the_spiritualist/spiritualist_images"
+  alto_dir: "data/the_spiritualist/ocr_gt_with_ssu"
+  image_ext: "jpg"
+
+box_sources:
+  gt: true
+  predicted:
+    enabled: false
+    layout_model: null
+    device: "cpu"
+
+ocr:
+  model: "paddleocr"
+  config:
+    lang: "en"
+    use_gpu: true
+
+output:
+  dir: "results/experiments/paddleocr_gpu_gt_only"
+  parquet: true
+  json: true
