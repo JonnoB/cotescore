@@ -2,9 +2,11 @@ import sys
 from pathlib import Path
 import numpy as np
 import pytest
+import json
+import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from pipeline.dofns.io import parse_alto_xml
+from pipeline.dofns.io import parse_alto_xml, write_json, write_parquet
 
 ALTO_PATH = Path("data/the_spiritualist/ocr_gt_with_ssu/0001_p001.xml")
 IMAGE_PATH = Path("data/the_spiritualist/spiritualist_images/0001_p001.jpg")
@@ -57,3 +59,43 @@ def test_textline_text_contains_content(parsed):
     _, _, tl_texts = parsed
     combined = " ".join(tl_texts)
     assert "Spiritualist" in combined
+
+
+SAMPLE_PAGE_RESULT = {
+    "image_id": "0001_p001",
+    "image_path": "/fake/0001_p001.jpg",
+    "ocr_model": "tesseract",
+    "layout_model": None,
+    "Q": {"T": 5, "h": 3},
+    "R": {},
+    "S_star": {"T": 4},
+    "S": {},
+    "boxes": [
+        {"image_id": "0001_p001", "box_id": "ssu_1", "source": "gt",
+         "x": 10.0, "y": 10.0, "width": 100.0, "height": 30.0,
+         "class": "text", "confidence": 1.0, "ocr_text": "The", "ocr_model": "tesseract"},
+    ],
+    "cdd": {"d_pars": None, "d_ocr": 0.05, "d_int": None, "d_total": 0.07},
+    "spacer": {"d_pars_macro": None, "d_pars_micro": None,
+               "d_ocr_macro": 0.04, "d_ocr_micro": 0.04,
+               "d_int_macro": None, "d_int_micro": None,
+               "d_total_macro": 0.06, "d_total_micro": 0.06},
+}
+
+
+def test_write_json_creates_file(tmp_path):
+    write_json(SAMPLE_PAGE_RESULT, tmp_path)
+    expected = tmp_path / "0001_p001.json"
+    assert expected.exists()
+    data = json.loads(expected.read_text())
+    assert data["image_id"] == "0001_p001"
+    assert "cdd" in data
+
+
+def test_write_parquet_creates_file(tmp_path):
+    write_parquet([SAMPLE_PAGE_RESULT], tmp_path / "results.parquet")
+    assert (tmp_path / "results.parquet").exists()
+    df = pd.read_parquet(tmp_path / "results.parquet")
+    assert len(df) == 1  # one box row
+    assert "ocr_text" in df.columns
+    assert "image_id" in df.columns

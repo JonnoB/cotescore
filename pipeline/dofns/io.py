@@ -5,6 +5,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 import numpy as np
+import json
+import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from cotescore.types import TokenPositions
@@ -81,3 +83,31 @@ def parse_alto_xml(
         ys=np.array(all_ys, dtype=int),
     )
     return gt_boxes, token_positions, tl_texts
+
+
+def write_json(page_result: dict, output_dir: Path) -> None:
+    """Write one JSON file per page to output_dir."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{page_result['image_id']}.json"
+    with open(out_path, "w") as f:
+        json.dump(page_result, f, indent=2)
+
+
+def write_parquet(page_results: List[dict], output_path: Path) -> None:
+    """Write all box-level rows to a single Parquet file."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for page in page_results:
+        for box in page.get("boxes", []):
+            rows.append({
+                "image_id": page["image_id"],
+                "ocr_model": page["ocr_model"],
+                "layout_model": page["layout_model"],
+                **{k: v for k, v in box.items() if k != "image_crop"},
+            })
+    if not rows:
+        pd.DataFrame().to_parquet(output_path)
+        return
+    pd.DataFrame(rows).to_parquet(output_path, index=False)
