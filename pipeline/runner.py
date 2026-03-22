@@ -51,7 +51,15 @@ def _make_layout_model(config: ExperimentConfig):
 
 
 def run_experiment(config: ExperimentConfig) -> None:
-    """Assemble and run the Beam OCR inference pipeline."""
+    """Assemble and run the Beam OCR inference pipeline.
+
+    Architecture note: Q/R records are computed in a pre-pipeline pure-Python
+    phase rather than via a ComputeQR Beam DoFn. This is intentional for ~50
+    pages (fast enough to run sequentially). The Beam pipeline handles only the
+    CPU-intensive OCR work. DirectRunner only — RunOCRModel relies on an
+    already-loaded model passed at construction time, which works because
+    DirectRunner runs in a single process.
+    """
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Phase 0: Load dataset and compute QR records (pure Python) ---
@@ -100,7 +108,12 @@ def run_experiment(config: ExperimentConfig) -> None:
                 with Image.open(image_path) as img:
                     iw, ih = img.size
                 w_eval, h_eval, scale = eval_shape(iw, ih)
-                masks = boxes_to_pred_masks(preds, w_eval, h_eval, scale=scale)
+                # Normalise "w"/"h" keys to "width"/"height" before boxes_to_pred_masks
+                normalised = [
+                    {**p, "width": p.get("width", p.get("w", 0)), "height": p.get("height", p.get("h", 0))}
+                    for p in preds
+                ]
+                masks = boxes_to_pred_masks(normalised, w_eval, h_eval, scale=scale)
                 R = build_R(token_positions, masks)
                 for pred in preds:
                     all_pred_box_records.append({

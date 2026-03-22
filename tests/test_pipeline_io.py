@@ -11,12 +11,19 @@ from pipeline.dofns.io import parse_alto_xml, write_json, write_parquet
 ALTO_PATH = Path("data/the_spiritualist/ocr_gt_with_ssu/0001_p001.xml")
 IMAGE_PATH = Path("data/the_spiritualist/spiritualist_images/0001_p001.jpg")
 
+_spiritualist_data_missing = not ALTO_PATH.exists() or not IMAGE_PATH.exists()
+requires_spiritualist_data = pytest.mark.skipif(
+    _spiritualist_data_missing,
+    reason="Spiritualist dataset not present (data/the_spiritualist/)",
+)
+
 
 @pytest.fixture
 def parsed():
     return parse_alto_xml(ALTO_PATH, IMAGE_PATH)
 
 
+@requires_spiritualist_data
 def test_parse_returns_box_records(parsed):
     gt_boxes, _, _ = parsed
     assert len(gt_boxes) > 0
@@ -29,12 +36,14 @@ def test_parse_returns_box_records(parsed):
     assert "class" in box
 
 
+@requires_spiritualist_data
 def test_box_id_comes_from_ssu(parsed):
     gt_boxes, _, _ = parsed
     # First TextLine in 0001_p001.xml has SSU="ssu_1_span_tr_1743007782"
     assert gt_boxes[0]["box_id"] == "ssu_1_span_tr_1743007782"
 
 
+@requires_spiritualist_data
 def test_token_positions_are_numpy_arrays(parsed):
     _, tp, _ = parsed
     assert hasattr(tp, "tokens") and hasattr(tp, "xs") and hasattr(tp, "ys")
@@ -42,12 +51,14 @@ def test_token_positions_are_numpy_arrays(parsed):
     assert len(tp.tokens) > 0
 
 
+@requires_spiritualist_data
 def test_token_positions_have_valid_midpoints(parsed):
     _, tp, _ = parsed
     assert np.all(tp.xs >= 0)
     assert np.all(tp.ys >= 0)
 
 
+@requires_spiritualist_data
 def test_gt_textline_texts_nonempty(parsed):
     _, _, tl_texts = parsed
     assert len(tl_texts) > 0
@@ -55,6 +66,7 @@ def test_gt_textline_texts_nonempty(parsed):
     assert any(len(t) > 0 for t in tl_texts)
 
 
+@requires_spiritualist_data
 def test_textline_text_contains_content(parsed):
     _, _, tl_texts = parsed
     combined = " ".join(tl_texts)
