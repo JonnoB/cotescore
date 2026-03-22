@@ -3,7 +3,10 @@
 
 import os
 os.environ.setdefault("GRPC_VERBOSITY", "NONE")
-os.environ.setdefault("FLAGS_use_mkldnn", "0")  # disable oneDNN — PIR executor bug in PaddlePaddle 3.x
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")        # expose GPU to Paddle Inference C++ API
+os.environ["FLAGS_use_mkldnn"] = "0"                       # disable oneDNN — PIR bug in PaddlePaddle 3.x
+os.environ["PADDLE_DISABLE_MKLDNN"] = "1"
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")  # skip slow connectivity check
 
 import argparse
 import logging

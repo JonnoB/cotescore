@@ -19,7 +19,7 @@ ocr:
   batch_size: 1
   config:
     lang: "en"
-    device: "gpu:0"
+    device: "gpu:0"  # if GPU fails with CUDA 13.0, change to "cpu:0" until PaddlePaddle certifies CUDA 13
 
 output:
   dir: "results/experiments/paddleocr_gpu_gt_only"
