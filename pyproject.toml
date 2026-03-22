@@ -73,7 +73,10 @@ pipeline = [
     "torchvision>=0.15.0",
     "transformers>=4.30.0",
     "easyocr>=1.7.0",
-    # paddleocr requires paddlepaddle installed first — see docs/PIPELINE.md
+    "paddleocr>=2.9.0",
+    # paddlepaddle (CPU or GPU) must be installed separately before paddleocr:
+    #   CPU: uv pip install paddlepaddle
+    #   GPU: uv pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 ]
 
 paddle-benchmark = [
@@ -144,7 +147,10 @@ pipeline = [
     "torchvision>=0.15.0",
     "transformers>=4.30.0",
     "easyocr>=1.7.0",
-    # paddleocr requires paddlepaddle installed first — see docs/PIPELINE.md
+    "paddleocr>=2.9.0",
+    # paddlepaddle (CPU or GPU) must be installed separately before paddleocr:
+    #   CPU: uv pip install paddlepaddle
+    #   GPU: uv pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
 ]
 
 # Install both groups when running plain `uv sync`
