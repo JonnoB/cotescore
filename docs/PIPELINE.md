@@ -95,7 +95,37 @@ Model weights download automatically on first `load()` call (~900 MB, cached in 
 pip install paddlepaddle paddleocr
 ```
 
-### 5. Layout models (required only for predicted-box experiments)
+For PaddleOCR with GPU support, install the GPU-enabled PaddlePaddle wheel instead:
+
+```bash
+# CUDA 11.x
+pip install paddlepaddle-gpu==2.6.1 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+pip install paddleocr
+```
+
+### 5. GPU setup (Lightning AI / CUDA)
+
+TrOCR and PaddleOCR support GPU inference. No extra packages beyond PyTorch/PaddlePaddle are needed — just set the `device` field in your experiment config.
+
+**Verify CUDA is available:**
+
+```python
+import torch
+print(torch.cuda.is_available())   # True on a GPU node
+print(torch.cuda.get_device_name(0))
+```
+
+**Config fields for GPU:**
+
+| OCR model | Config key | Values |
+|-----------|-----------|--------|
+| `trocr` | `ocr.config.device` | `"cpu"` (default) or `"cuda"` |
+| `paddleocr` | `ocr.config.use_gpu` | `false` (default) or `true` |
+| `tesseract` | — | CPU only |
+
+Example: `experiments/trocr_gpu_gt_only.yaml` uses `device: "cuda"`.
+
+### 6. Layout models (required only for predicted-box experiments)
 
 The three supported layout models (`yolo`, `ppdoc-l`, `heron`) are loaded from `models/` at the repo root. Ensure the relevant model weights are present before running a `predicted: enabled: true` experiment.
 
@@ -106,7 +136,28 @@ The three supported layout models (`yolo`, `ppdoc-l`, `heron`) are loaded from `
 ```bash
 # from repo root
 python scripts/run_experiment.py --config experiments/tesseract_gt_only.yaml
+
+# GPU experiment
+python scripts/run_experiment.py --config experiments/trocr_gpu_gt_only.yaml
 ```
+
+## Running multiple experiments simultaneously
+
+Use `scripts/run_experiments.py` (plural) to run several configs in parallel. Each experiment runs in a separate subprocess with its own CUDA context.
+
+```bash
+# Run two GPU experiments at the same time
+python scripts/run_experiments.py \
+    --config experiments/trocr_gpu_gt_only.yaml \
+    --config experiments/paddleocr_gpu_gt_only.yaml
+
+# Cap to 1 worker (sequential) when sharing a single GPU
+python scripts/run_experiments.py --workers 1 \
+    --config experiments/trocr_gpu_gt_only.yaml \
+    --config experiments/paddleocr_gpu_gt_only.yaml
+```
+
+If your Lightning AI node has only one GPU, set `--workers 1` so experiments run one at a time and don't compete for VRAM.
 
 ### What you will see
 

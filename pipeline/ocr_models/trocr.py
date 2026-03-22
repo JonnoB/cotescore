@@ -11,8 +11,9 @@ class TrOCROCR(OCRModel):
 
     DEFAULT_MODEL = "microsoft/trocr-base-printed"
 
-    def __init__(self, model_name: str = DEFAULT_MODEL, **kwargs):
+    def __init__(self, model_name: str = DEFAULT_MODEL, device: str = "cpu", **kwargs):
         self._model_name = model_name
+        self._device = device
         self._processor = None
         self._model = None
 
@@ -20,11 +21,13 @@ class TrOCROCR(OCRModel):
         from transformers import TrOCRProcessor, VisionEncoderDecoderModel
         self._processor = TrOCRProcessor.from_pretrained(self._model_name)
         self._model = VisionEncoderDecoderModel.from_pretrained(self._model_name)
+        self._model = self._model.to(self._device)
         self._model.eval()
 
     def run(self, crop: Image.Image) -> str:
         import torch
         pixel_values = self._processor(images=crop.convert("RGB"), return_tensors="pt").pixel_values
+        pixel_values = pixel_values.to(self._device)
         with torch.no_grad():
             generated_ids = self._model.generate(pixel_values)
         return self._processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 import yaml
 
-VALID_OCR_MODELS = {"tesseract", "trocr", "paddleocr"}
+VALID_OCR_MODELS = {"tesseract", "trocr", "paddleocr", "easyocr"}
 VALID_LAYOUT_MODELS = {"yolo", "ppdoc-l", "heron"}
 
 

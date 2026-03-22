@@ -35,6 +35,9 @@ def _make_ocr_model(config: ExperimentConfig):
     elif config.ocr_model == "paddleocr":
         from pipeline.ocr_models.paddleocr import PaddleOCROCR
         return PaddleOCROCR(**config.ocr_config)
+    elif config.ocr_model == "easyocr":
+        from pipeline.ocr_models.easyocr import EasyOCROCR
+        return EasyOCROCR(**config.ocr_config)
     raise ValueError(f"Unknown OCR model: {config.ocr_model}")
 
 
