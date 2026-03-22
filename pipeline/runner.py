@@ -18,8 +18,8 @@ from cotescore.dataset import SpiritualistDataset
 
 from pipeline.config import ExperimentConfig
 from pipeline.dofns.io import parse_alto_xml, write_json, write_parquet
-from pipeline.dofns.ocr import RunOCRModel
-from pipeline.dofns.transforms import AggregatePerPage, CropImageRegion
+from pipeline.dofns.ocr import CropAndRunOCR
+from pipeline.dofns.transforms import AggregatePerPage
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +160,7 @@ def run_experiment(config: ExperimentConfig) -> None:
             (
                 p
                 | "CreateGTBoxes" >> beam.Create(all_gt_box_records)
-                | "CropGT" >> beam.ParDo(CropImageRegion())
-                | "OCRGT" >> beam.ParDo(RunOCRModel(ocr_model, config.ocr_model))
+                | "CropAndOCRGT" >> beam.ParDo(CropAndRunOCR(ocr_model, config.ocr_model))
                 | "KeyGT" >> beam.Map(lambda r: (r["image_id"], r))
             ) if config.gt_enabled and all_gt_box_records else (
                 p | "EmptyGT" >> beam.Create([])
@@ -172,8 +171,7 @@ def run_experiment(config: ExperimentConfig) -> None:
             (
                 p
                 | "CreatePredBoxes" >> beam.Create(all_pred_box_records)
-                | "CropPred" >> beam.ParDo(CropImageRegion())
-                | "OCRPred" >> beam.ParDo(RunOCRModel(ocr_model, config.ocr_model))
+                | "CropAndOCRPred" >> beam.ParDo(CropAndRunOCR(ocr_model, config.ocr_model))
                 | "KeyPred" >> beam.Map(lambda r: (r["image_id"], r))
             ) if config.predicted_enabled and all_pred_box_records else (
                 p | "EmptyPred" >> beam.Create([])
