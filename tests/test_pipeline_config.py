@@ -55,6 +55,7 @@ output:
 """
 
 YAML_UNKNOWN_OCR = SAMPLE_YAML.replace('"tesseract"', '"fakeocr"')
+YAML_UNKNOWN_LAYOUT = SAMPLE_YAML.replace("enabled: false", "enabled: true").replace("layout_model: null", 'layout_model: "garbage"')
 
 
 def test_load_valid_config(tmp_path):
@@ -81,4 +82,11 @@ def test_unknown_ocr_model_raises(tmp_path):
     cfg_file = tmp_path / "bad.yaml"
     cfg_file.write_text(YAML_UNKNOWN_OCR)
     with pytest.raises(ConfigError, match="fakeocr"):
+        load_config(cfg_file)
+
+
+def test_unknown_layout_model_raises(tmp_path):
+    cfg_file = tmp_path / "bad.yaml"
+    cfg_file.write_text(YAML_UNKNOWN_LAYOUT)
+    with pytest.raises(ConfigError, match="garbage"):
         load_config(cfg_file)

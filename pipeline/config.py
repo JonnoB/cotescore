@@ -42,6 +42,9 @@ def load_config(path: Path) -> ExperimentConfig:
     if predicted_enabled and not layout_model:
         raise ConfigError("predicted.layout_model is required when predicted.enabled is true")
 
+    if predicted_enabled and layout_model not in VALID_LAYOUT_MODELS:
+        raise ConfigError(f"Unknown predicted.layout_model: {layout_model!r}. Valid: {VALID_LAYOUT_MODELS}")
+
     if ocr_model not in VALID_OCR_MODELS:
         raise ConfigError(f"Unknown ocr.model: {ocr_model!r}. Valid: {VALID_OCR_MODELS}")
 
