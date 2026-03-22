@@ -16,12 +16,10 @@ box_sources:
 
 ocr:
   model: "paddleocr"
-  # PaddleOCR batches internally via rec_batch_num — runner batch_size stays 1.
   batch_size: 1
   config:
     lang: "en"
-    use_gpu: true
-    rec_batch_num: 32  # larger internal recognition batch on GPU
+    device: "gpu"
 
 output:
   dir: "results/experiments/paddleocr_gpu_gt_only"
