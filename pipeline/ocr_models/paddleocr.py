@@ -21,6 +21,16 @@ class PaddleOCROCR(OCRModel):
         self._engine = None
 
     def load(self) -> None:
+        import paddle
+        # Disable oneDNN/MKL-DNN via the Python API — env vars alone are too late
+        # because PaddlePaddle reads C++ flags at extension init time.
+        # This avoids a PIR executor bug in PaddlePaddle 3.x:
+        # "ConvertPirAttribute2RuntimeAttribute not support ArrayAttribute<DoubleAttribute>"
+        try:
+            paddle.set_flags({"FLAGS_use_mkldnn": False})
+        except Exception:
+            pass
+
         from paddleocr import PaddleOCR
         self._engine = PaddleOCR(lang=self._lang, device=self._device, **self._extra)
 
