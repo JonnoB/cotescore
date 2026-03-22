@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import apache_beam as beam
+from apache_beam.options.pipeline_options import DirectOptions, PipelineOptions
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -155,7 +156,12 @@ def run_experiment(config: ExperimentConfig) -> None:
     # --- Phase 1: Beam pipeline (parallel OCR) ---
     page_results: List[dict] = []
 
-    with beam.Pipeline() as p:
+    # Force the classic in-process DirectRunner — avoids Prism (the new default
+    # in Beam 2.53+) which spawns a gRPC job server and breaks PIL serialisation.
+    _opts = PipelineOptions(runner="DirectRunner")
+    _opts.view_as(DirectOptions).direct_running_mode = "in_memory"
+
+    with beam.Pipeline(options=_opts) as p:
         qr_pc = (
             p
             | "CreateQR" >> beam.Create(all_qr_records)
