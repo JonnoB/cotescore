@@ -121,3 +121,22 @@ class AggregatePerPage(beam.DoFn):
             "cdd": cdd_dict,
             "spacer": spacer_dict,
         }
+
+
+def aggregate_page(
+    image_id: str,
+    gt_boxes: list,
+    pred_boxes: list,
+    qr: dict,
+    ocr_model_name: str,
+    layout_model_name,
+) -> Optional[dict]:
+    """Plain-function equivalent of AggregatePerPage for use outside Beam."""
+    return next(
+        iter(
+            AggregatePerPage(ocr_model_name, layout_model_name).process(
+                (image_id, {"gt_boxes": gt_boxes, "pred_boxes": pred_boxes, "qr": [qr]})
+            )
+        ),
+        None,
+    )

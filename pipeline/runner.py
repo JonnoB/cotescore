@@ -8,8 +8,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
-import apache_beam as beam
-from apache_beam.options.pipeline_options import DirectOptions, PipelineOptions
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,8 +19,8 @@ from cotescore.dataset import SpiritualistDataset
 
 from pipeline.config import ExperimentConfig
 from pipeline.dofns.io import parse_alto_xml, write_json, write_parquet
-from pipeline.dofns.ocr import CropAndRunOCR
-from pipeline.dofns.transforms import AggregatePerPage
+from pipeline.dofns.ocr import crop_and_run_ocr
+from pipeline.dofns.transforms import aggregate_page
 
 logger = logging.getLogger(__name__)
 
@@ -151,56 +151,57 @@ def run_experiment(config: ExperimentConfig) -> None:
         f"Pre-pipeline complete: {len(all_qr_records)} pages, "
         f"{len(all_gt_box_records)} GT boxes, {len(all_pred_box_records)} pred boxes"
     )
-    logger.info("Starting Beam OCR pipeline...")
+    logger.info("Starting OCR pipeline...")
 
-    # --- Phase 1: Beam pipeline (parallel OCR) ---
+    # --- Phase 1: Parallel OCR via ThreadPoolExecutor ---
+    # Beam's FnAPI runner (default in 2.53+ via Prism) requires gRPC between
+    # transforms, which conflicts with PIL and causes DEADLINE_EXCEEDED errors.
+    # ThreadPoolExecutor gives equivalent parallelism without any gRPC overhead.
+    all_box_records = (
+        (all_gt_box_records if config.gt_enabled else []) + all_pred_box_records
+    )
+
+    ocr_results: List[Dict[str, Any]] = []
+    n_workers = min(8, len(all_box_records)) if all_box_records else 1
+    logger.info(f"Running OCR on {len(all_box_records)} boxes ({n_workers} workers)")
+
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        futures = {
+            executor.submit(crop_and_run_ocr, record, ocr_model, config.ocr_model): record
+            for record in all_box_records
+        }
+        done = 0
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                ocr_results.append(result)
+            done += 1
+            if done % 50 == 0 or done == len(all_box_records):
+                logger.info(f"  OCR progress: {done}/{len(all_box_records)} boxes")
+
+    # --- Phase 2: Aggregate per page ---
+    logger.info("Aggregating per-page results...")
+    by_image: Dict[str, Dict[str, List]] = {}
+    for r in ocr_results:
+        entry = by_image.setdefault(r["image_id"], {"gt_boxes": [], "pred_boxes": []})
+        entry["gt_boxes" if r["source"] == "gt" else "pred_boxes"].append(r)
+
+    qr_by_image = {r["image_id"]: r for r in all_qr_records}
+
     page_results: List[dict] = []
-
-    # Force the classic in-process DirectRunner — avoids Prism (the new default
-    # in Beam 2.53+) which spawns a gRPC job server and breaks PIL serialisation.
-    _opts = PipelineOptions(runner="DirectRunner")
-    _opts.view_as(DirectOptions).direct_running_mode = "in_memory"
-
-    with beam.Pipeline(options=_opts) as p:
-        qr_pc = (
-            p
-            | "CreateQR" >> beam.Create(all_qr_records)
-            | "KeyQR" >> beam.Map(lambda r: (r["image_id"], r))
+    for image_id, boxes in by_image.items():
+        qr = qr_by_image.get(image_id)
+        if qr is None:
+            logger.warning(f"No QR record for {image_id}, skipping")
+            continue
+        result = aggregate_page(
+            image_id, boxes["gt_boxes"], boxes["pred_boxes"], qr,
+            config.ocr_model, config.layout_model,
         )
+        if result is not None:
+            page_results.append(result)
 
-        gt_ocr_pc = (
-            (
-                p
-                | "CreateGTBoxes" >> beam.Create(all_gt_box_records)
-                | "CropAndOCRGT" >> beam.ParDo(CropAndRunOCR(ocr_model, config.ocr_model))
-                | "KeyGT" >> beam.Map(lambda r: (r["image_id"], r))
-            ) if config.gt_enabled and all_gt_box_records else (
-                p | "EmptyGT" >> beam.Create([])
-            )
-        )
-
-        pred_ocr_pc = (
-            (
-                p
-                | "CreatePredBoxes" >> beam.Create(all_pred_box_records)
-                | "CropAndOCRPred" >> beam.ParDo(CropAndRunOCR(ocr_model, config.ocr_model))
-                | "KeyPred" >> beam.Map(lambda r: (r["image_id"], r))
-            ) if config.predicted_enabled and all_pred_box_records else (
-                p | "EmptyPred" >> beam.Create([])
-            )
-        )
-
-        results_pc = (
-            {"gt_boxes": gt_ocr_pc, "pred_boxes": pred_ocr_pc, "qr": qr_pc}
-            | "CoGroup" >> beam.CoGroupByKey()
-            | "Aggregate" >> beam.ParDo(
-                AggregatePerPage(config.ocr_model, config.layout_model)
-            )
-        )
-
-        results_pc | "Collect" >> beam.Map(page_results.append)
-
-    logger.info(f"Beam pipeline complete: {len(page_results)} pages processed")
+    logger.info(f"Pipeline complete: {len(page_results)} pages processed")
 
     if config.output_json:
         logger.info(f"Writing JSON to {config.output_dir}/")

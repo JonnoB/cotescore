@@ -82,3 +82,10 @@ class CropAndRunOCR(beam.DoFn):
             f"  OCR {record.get('image_id')} | {record.get('box_id')}: {repr(text[:60])}"
         )
         yield {**record, "ocr_text": text, "ocr_model": self._model_name, "image_crop": None}
+
+
+def crop_and_run_ocr(
+    record: BoxRecord, model: OCRModel, model_name: str
+) -> BoxRecord | None:
+    """Plain-function equivalent of CropAndRunOCR for use outside Beam."""
+    return next(iter(CropAndRunOCR(model, model_name).process(record)), None)
