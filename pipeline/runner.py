@@ -94,7 +94,6 @@ def run_experiment(config: ExperimentConfig) -> None:
         Q = build_Q(token_positions)
 
         R: Counter = Counter()
-        pred_boxes_for_page: List[Dict] = []
         if config.predicted_enabled and layout_model is not None:
             try:
                 preds = layout_model.predict(image_path)
