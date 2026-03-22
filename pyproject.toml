@@ -148,22 +148,8 @@ pipeline = [
 ]
 
 # Install both groups when running plain `uv sync`
+# torch/torchvision are installed as CPU wheels from PyPI by default.
+# For GPU on Lightning AI, run this after uv sync:
+#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --reinstall
 [tool.uv]
 default-groups = ["dev", "pipeline"]
-
-# ---------------------------------------------------------------------------
-# PyTorch CUDA index (Lightning AI / any Linux GPU node)
-# On macOS torch falls back to PyPI CPU wheels automatically.
-# ---------------------------------------------------------------------------
-[[tool.uv.index]]
-name = "pytorch-cuda"
-url = "https://download.pytorch.org/whl/cu121"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cuda", marker = "sys_platform == 'linux'" },
-]
-torchvision = [
-    { index = "pytorch-cuda", marker = "sys_platform == 'linux'" },
-]
