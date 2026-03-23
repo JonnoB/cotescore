@@ -27,16 +27,27 @@ _TALL_TEXT_FACTOR = 1.2
 class ALTOSSUTagger:
     """Assigns SSU identifiers to TextLines in a Transkribus ALTO XML file."""
 
-    def __init__(self, alto_xml_path: str, min_heading_score: int = 2) -> None:
+    def __init__(
+        self,
+        alto_xml_path: str,
+        min_heading_score: int = 2,
+        min_col_lines: int = 5,
+    ) -> None:
         """Initialise the tagger for a single ALTO XML file.
 
         Args:
             alto_xml_path: Path to the ALTO XML file.
             min_heading_score: Number of heading rules (out of 5) a TextLine must
                 satisfy to be classified as a heading. Defaults to 2.
+            min_col_lines: Minimum number of TextLines a block must contain to be
+                used when inferring column bins.  Short header/preamble blocks
+                (typically 1-2 lines) are excluded so they do not distort column
+                boundaries.  Falls back to all blocks when fewer than 2 qualify.
+                Defaults to 5.
         """
         self.alto_xml_path = alto_xml_path
         self.min_heading_score = min_heading_score
+        self.min_col_lines = min_col_lines
 
     # ------------------------------------------------------------------
     # Namespace helpers
@@ -361,6 +372,7 @@ class ALTOSSUTagger:
         ssu_metadata: dict = {}
         line_metadata: dict = {}
         semantic_id = 0
+        prev_was_heading = False
 
         for block in blocks:
             n_lines = len(block["lines"])
@@ -377,7 +389,7 @@ class ALTOSSUTagger:
                     line, block, n_lines, page_median_height
                 )
 
-                if is_heading:
+                if is_heading and not prev_was_heading:
                     semantic_id += 1
 
                 if semantic_id == 0:
@@ -405,6 +417,8 @@ class ALTOSSUTagger:
                     "bbox": (line["hpos"], line["vpos"], line["width"], line["height"]),
                     "is_heading": is_heading,
                 }
+
+                prev_was_heading = is_heading
 
         return line_to_ssu, ssu_to_lines, ssu_metadata, line_metadata
 
@@ -462,10 +476,18 @@ class ALTOSSUTagger:
         blocks = self._extract_blocks(print_space, ns)
         page_median_height = self._compute_page_median_string_height(blocks)
 
+        col_blocks = [b for b in blocks if len(b["lines"]) >= self.min_col_lines]
+        using_col_filter = len(col_blocks) >= 2
+        bin_source = col_blocks if using_col_filter else blocks
+
         block_regions = [
-            {"id": b["id"], "type": "paragraph", "bbox": b["bbox"]} for b in blocks
+            {"id": b["id"], "type": "paragraph", "bbox": b["bbox"]} for b in bin_source
         ]
-        bins = self._infer_structural_bins(block_regions)
+        # When blocks are pre-filtered to substantive columns each qualifying
+        # block is trusted on its own; lower min_bin_members to 1 so singleton
+        # column blocks are not collapsed into their nearest neighbour.
+        min_bin_members = 1 if using_col_filter else 2
+        bins = self._infer_structural_bins(block_regions, min_bin_members=min_bin_members)
 
         line_to_ssu, ssu_to_lines, ssu_metadata, line_metadata = self._assign_ssus(
             blocks, bins, page_median_height
@@ -491,6 +513,7 @@ def assign_alto_ssu(
     output_path: Optional[str] = None,
     modify_in_place: bool = False,
     min_heading_score: int = 2,
+    min_col_lines: int = 5,
 ) -> dict:
     """Assign Semantic Structural Units to TextLines in a Transkribus ALTO XML file.
 
@@ -516,4 +539,4 @@ def assign_alto_ssu(
                                  'is_heading': bool,
                              }
     """
-    return ALTOSSUTagger(alto_xml_path, min_heading_score).assign(output_path, modify_in_place)
+    return ALTOSSUTagger(alto_xml_path, min_heading_score, min_col_lines).assign(output_path, modify_in_place)
