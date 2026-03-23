@@ -17,7 +17,7 @@ box_sources:
 ocr:
   model: "tesseract"
   # Tesseract is CPU-only and single-threaded per image — no batching benefit.
-  batch_size: 1
+  batch_size: 100
   config:
     lang: "eng"
     psm: 7   # single text line — correct for ALTO TextLine crops

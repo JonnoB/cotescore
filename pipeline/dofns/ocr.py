@@ -42,11 +42,18 @@ class CropAndRunOCR(beam.DoFn):
     which allows the FnAPI-based DirectRunner to serialise elements without error.
     """
 
+    LOG_EVERY = 25  # log a progress line every N boxes
+
     def __init__(self, model: OCRModel, model_name: str):
         self._model = model
         self._model_name = model_name
+        self._count = 0
 
     def process(self, record: BoxRecord) -> Iterator[BoxRecord]:
+        self._count += 1
+        image_id = record.get("image_id", "unknown")
+        source = record.get("source", "gt").upper()
+
         try:
             with Image.open(record["image_path"]) as img:
                 img = img.convert("RGB")
@@ -58,14 +65,14 @@ class CropAndRunOCR(beam.DoFn):
                 if x2 <= x1 or y2 <= y1:
                     logger.warning(
                         f"Zero-area crop for {record.get('box_id', 'unknown')} "
-                        f"in {record.get('image_id', 'unknown')}, skipping"
+                        f"in {image_id}, skipping"
                     )
                     return
                 crop = img.crop((x1, y1, x2, y2)).copy()
         except Exception as e:
             logger.warning(
                 f"Failed to open/crop {record.get('box_id', 'unknown')} "
-                f"in {record.get('image_id', 'unknown')}: {e}"
+                f"in {image_id}: {e}"
             )
             return
 
@@ -74,13 +81,19 @@ class CropAndRunOCR(beam.DoFn):
         except Exception as e:
             logger.warning(
                 f"OCR failed for {record.get('box_id', 'unknown')} "
-                f"in {record.get('image_id', 'unknown')}: {e}"
+                f"in {image_id}: {e}"
             )
             text = ""
 
-        logger.debug(
-            f"  OCR {record.get('image_id')} | {record.get('box_id')}: {repr(text[:60])}"
-        )
+        if self._count == 1 or self._count % self.LOG_EVERY == 0:
+            logger.info(
+                f"  [OCR/{source}] box {self._count:>5} | {image_id} | {repr(text[:50])}"
+            )
+        else:
+            logger.debug(
+                f"  [OCR/{source}] box {self._count:>5} | {image_id} | {repr(text[:50])}"
+            )
+
         yield {**record, "ocr_text": text, "ocr_model": self._model_name, "image_crop": None}
 
 

@@ -1,14 +1,15 @@
 # pipeline/runner.py
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
+from typing import Any, Dict, List
 
 from PIL import Image
 
@@ -19,7 +20,8 @@ from cotescore.dataset import SpiritualistDataset
 
 from pipeline.config import ExperimentConfig
 from pipeline.dofns.io import parse_alto_xml, write_json, write_parquet
-from pipeline.dofns.transforms import aggregate_page
+from pipeline.dofns.transforms import AggregatePerPage
+from pipeline.ocr_models.base import OCRModel
 
 logger = logging.getLogger(__name__)
 
@@ -53,61 +55,101 @@ def _make_layout_model(config: ExperimentConfig):
     raise ValueError(f"Unknown layout model: {config.layout_model}")
 
 
-def _process_batch(records: List[Dict[str, Any]], model, model_name: str) -> List[Dict[str, Any]]:
-    """Crop all images in the batch then run OCR in a single model call."""
-    crops = []
-    valid = []
-    for record in records:
-        try:
-            with Image.open(record["image_path"]) as img:
-                img = img.convert("RGB")
-                iw, ih = img.size
-                x1 = max(0, int(record["x"]))
-                y1 = max(0, int(record["y"]))
-                x2 = min(iw, int(record["x"] + record["width"]))
-                y2 = min(ih, int(record["y"] + record["height"]))
-                if x2 > x1 and y2 > y1:
+def _ocr_boxes_batched(
+    records: List[Dict[str, Any]],
+    model: OCRModel,
+    model_name: str,
+    batch_size: int,
+    label: str,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Crop boxes in batches, call model.run_batch(), return results by image_id.
+
+    Separating cropping from inference lets GPU-native batch inference
+    (TrOCR, EasyOCR) process multiple images in a single forward pass.
+    """
+    by_page: Dict[str, List[Any]] = defaultdict(list)
+    n = len(records)
+    if n == 0:
+        return by_page
+
+    for batch_start in range(0, n, batch_size):
+        batch = records[batch_start: batch_start + batch_size]
+        crops: List[Image.Image] = []
+        valid: List[Dict[str, Any]] = []
+
+        for record in batch:
+            try:
+                with Image.open(record["image_path"]) as img:
+                    img = img.convert("RGB")
+                    iw, ih = img.size
+                    x1 = max(0, int(record["x"]))
+                    y1 = max(0, int(record["y"]))
+                    x2 = min(iw, int(record["x"] + record["width"]))
+                    y2 = min(ih, int(record["y"] + record["height"]))
+                    if x2 <= x1 or y2 <= y1:
+                        logger.warning(
+                            f"Zero-area crop for {record.get('box_id')} "
+                            f"in {record.get('image_id')}, skipping"
+                        )
+                        continue
                     crops.append(img.crop((x1, y1, x2, y2)).copy())
                     valid.append(record)
-                else:
-                    logger.warning(f"Zero-area crop for {record.get('box_id')} in {record.get('image_id')}, skipping")
+            except Exception as e:
+                logger.warning(
+                    f"Crop failed for {record.get('box_id')} "
+                    f"in {record.get('image_id')}: {e}"
+                )
+
+        if not crops:
+            continue
+
+        try:
+            texts = model.run_batch(crops)
         except Exception as e:
-            logger.warning(f"Failed to open/crop {record.get('box_id')} in {record.get('image_id')}: {e}")
+            logger.warning(f"Batch OCR failed ({e}), falling back to per-box")
+            texts = []
+            for crop in crops:
+                try:
+                    texts.append(model.run(crop))
+                except Exception as e2:
+                    logger.warning(f"Per-box OCR failed: {e2}")
+                    texts.append("")
 
-    if not crops:
-        return []
+        batch_end = batch_start + len(valid)
+        logger.info(
+            f"  [OCR/{label}] boxes {batch_start + 1}-{batch_end}/{n} "
+            f"| {valid[0].get('image_id')} "
+            f"| sample: {repr(texts[0][:50]) if texts else ''}"
+        )
 
-    try:
-        texts = model.run_batch(crops)
-    except Exception as e:
-        logger.warning(f"Batch OCR failed ({e}), falling back to single-image inference")
-        texts = []
-        for crop in crops:
-            try:
-                texts.append(model.run(crop))
-            except Exception as e2:
-                logger.warning(f"Single OCR also failed: {e2}")
-                texts.append("")
+        for record, text in zip(valid, texts):
+            result = {
+                **record,
+                "ocr_text": text,
+                "ocr_model": model_name,
+                "image_crop": None,
+            }
+            by_page[result["image_id"]].append(result)
 
-    return [
-        {**record, "ocr_text": text, "ocr_model": model_name, "image_crop": None}
-        for record, text in zip(valid, texts)
-    ]
+    return by_page
 
 
 def run_experiment(config: ExperimentConfig) -> None:
-    """Assemble and run the Beam OCR inference pipeline.
+    """Run the OCR inference pipeline.
 
-    Architecture note: Q/R records are computed in a pre-pipeline pure-Python
-    phase rather than via a ComputeQR Beam DoFn. This is intentional for ~50
-    pages (fast enough to run sequentially). The Beam pipeline handles only the
-    CPU-intensive OCR work. DirectRunner only — RunOCRModel relies on an
-    already-loaded model passed at construction time, which works because
-    DirectRunner runs in a single process.
+    Architecture:
+      Phase 0 — Parse ALTO XML, build Q/R distributions, collect layout boxes.
+      Phase 1 — OCR inference: _ocr_boxes_batched crops+infers in batches,
+                AggregatePerPage computes CDD/SpACER per page.
+                Results written as JSON per page.
+      Phase 2 — Consolidate JSON files into Parquet.
     """
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Phase 0: Load dataset and compute QR records (pure Python) ---
+    # --- Phase 0: Parse dataset and compute QR records ---
+    logger.info("=" * 60)
+    logger.info("Phase 0: Parsing dataset and building Q/R distributions")
+    logger.info("=" * 60)
     dataset = SpiritualistDataset(
         images_path=config.images_dir,
         groundtruth_path=config.alto_dir,
@@ -156,7 +198,6 @@ def run_experiment(config: ExperimentConfig) -> None:
                 with Image.open(image_path) as img:
                     iw, ih = img.size
                 w_eval, h_eval, scale = eval_shape(iw, ih)
-                # Normalise "w"/"h" keys to "width"/"height" before boxes_to_pred_masks
                 normalised = [
                     {**p, "width": p.get("width", p.get("w", 0)), "height": p.get("height", p.get("h", 0))}
                     for p in preds
@@ -191,77 +232,74 @@ def run_experiment(config: ExperimentConfig) -> None:
             "gt_textline_texts": tl_texts,
         })
 
+    n_gt = len(all_gt_box_records)
+    n_pred = len(all_pred_box_records)
+    logger.info("-" * 60)
     logger.info(
-        f"Pre-pipeline complete: {len(all_qr_records)} pages, "
-        f"{len(all_gt_box_records)} GT boxes, {len(all_pred_box_records)} pred boxes"
-    )
-    logger.info("Starting OCR pipeline...")
-
-    # --- Phase 1: Parallel OCR via ThreadPoolExecutor ---
-    # Beam's FnAPI runner (default in 2.53+ via Prism) requires gRPC between
-    # transforms, which conflicts with PIL and causes DEADLINE_EXCEEDED errors.
-    # ThreadPoolExecutor gives equivalent parallelism without any gRPC overhead.
-    all_box_records = (
-        (all_gt_box_records if config.gt_enabled else []) + all_pred_box_records
+        f"Phase 0 complete: {len(all_qr_records)} pages | "
+        f"{n_gt} GT boxes | {n_pred} pred boxes"
     )
 
-    batch_size = max(1, config.ocr_batch_size)
-    batches = [all_box_records[i:i + batch_size] for i in range(0, len(all_box_records), batch_size)]
-    n_workers = min(8, len(batches)) if batches else 1
+    # --- Phase 1: OCR inference (direct Python — DoFns called in-process) ---
+    # Beam 2.53+ always routes DirectRunner through Prism/gRPC, causing
+    # DEADLINE_EXCEEDED on runs longer than ~15 min. We call the same DoFns
+    # directly so all logging is immediate and there is no gRPC overhead.
+    logger.info("=" * 60)
     logger.info(
-        f"Running OCR on {len(all_box_records)} boxes "
-        f"(batch_size={batch_size}, {len(batches)} batches, {n_workers} workers)"
+        f"Phase 1: OCR inference "
+        f"({config.ocr_model}, {n_gt} GT + {n_pred} pred boxes)"
+    )
+    logger.info("=" * 60)
+
+    agg_dofn = AggregatePerPage(config.ocr_model, config.layout_model)
+    qr_by_page: Dict[str, Any] = {qr["image_id"]: qr for qr in all_qr_records}
+
+    logger.info(f"  OCR stage: GT boxes ({n_gt}), batch_size={config.ocr_batch_size}")
+    gt_by_page = _ocr_boxes_batched(
+        all_gt_box_records if config.gt_enabled else [],
+        ocr_model, config.ocr_model, config.ocr_batch_size, "GT",
     )
 
-    ocr_results: List[Dict[str, Any]] = []
-    boxes_done = 0
-
-    with ThreadPoolExecutor(max_workers=n_workers) as executor:
-        futures = {
-            executor.submit(_process_batch, batch, ocr_model, config.ocr_model): batch
-            for batch in batches
-        }
-        for future in as_completed(futures):
-            results = future.result()
-            ocr_results.extend(results)
-            boxes_done += len(futures[future])
-            if boxes_done % 50 == 0 or boxes_done >= len(all_box_records):
-                logger.info(f"  OCR progress: {boxes_done}/{len(all_box_records)} boxes")
-
-    # --- Phase 2: Aggregate per page ---
-    logger.info("Aggregating per-page results...")
-    by_image: Dict[str, Dict[str, List]] = {}
-    for r in ocr_results:
-        entry = by_image.setdefault(r["image_id"], {"gt_boxes": [], "pred_boxes": []})
-        entry["gt_boxes" if r["source"] == "gt" else "pred_boxes"].append(r)
-
-    qr_by_image = {r["image_id"]: r for r in all_qr_records}
-
-    page_results: List[dict] = []
-    for image_id, boxes in by_image.items():
-        qr = qr_by_image.get(image_id)
-        if qr is None:
-            logger.warning(f"No QR record for {image_id}, skipping")
-            continue
-        result = aggregate_page(
-            image_id, boxes["gt_boxes"], boxes["pred_boxes"], qr,
-            config.ocr_model, config.layout_model,
+    pred_by_page: Dict[str, List[Any]] = defaultdict(list)
+    if n_pred:
+        logger.info(f"  OCR stage: pred boxes ({n_pred}), batch_size={config.ocr_batch_size}")
+        pred_by_page = _ocr_boxes_batched(
+            all_pred_box_records,
+            ocr_model, config.ocr_model, config.ocr_batch_size, "PRED",
         )
-        if result is not None:
-            page_results.append(result)
 
-    logger.info(f"Pipeline complete: {len(page_results)} pages processed")
+    logger.info("  Aggregation stage")
+    page_results_list: List[dict] = []
+    for image_id in sorted(qr_by_page.keys()):
+        element = (
+            image_id,
+            {
+                "gt_boxes": gt_by_page[image_id],
+                "pred_boxes": pred_by_page[image_id],
+                "qr": [qr_by_page[image_id]],
+            },
+        )
+        for result in agg_dofn.process(element):
+            write_json(result, config.output_dir)
+            page_results_list.append(result)
 
-    if config.output_json:
-        logger.info(f"Writing JSON to {config.output_dir}/")
-        for page in page_results:
-            write_json(page, config.output_dir)
-        logger.info(f"  {len(page_results)} JSON files written")
+    logger.info("-" * 60)
+    logger.info(f"Phase 1 complete: {len(page_results_list)} pages processed.")
 
+    # --- Phase 2: Parquet (post-pipeline, from written JSON files) ---
+    logger.info("=" * 60)
+    logger.info("Phase 2: Consolidating JSON results to Parquet")
+    logger.info("=" * 60)
     if config.output_parquet:
+        json_files = sorted(config.output_dir.glob("*.json"))
+        page_results_list = [json.loads(f.read_text()) for f in json_files]
         parquet_path = config.output_dir / "results.parquet"
         logger.info(f"Writing Parquet to {parquet_path}")
-        write_parquet(page_results, parquet_path)
-        logger.info(f"  Parquet written ({sum(len(p.get('boxes', [])) for p in page_results)} box rows)")
+        write_parquet(page_results_list, parquet_path)
+        logger.info(f"  Parquet written ({sum(len(p.get('boxes', [])) for p in page_results_list)} box rows)")
+
+    if not config.output_json:
+        for f in config.output_dir.glob("*.json"):
+            f.unlink()
 
     logger.info("Done.")

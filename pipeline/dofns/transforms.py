@@ -50,6 +50,7 @@ class AggregatePerPage(beam.DoFn):
     def process(self, element: Tuple) -> Iterator[dict]:
         image_id, grouped = element
         qr_list = list(grouped["qr"])
+        logger.info(f"[aggregate] {image_id}")
         if not qr_list:
             logger.warning(f"No QR record for {image_id}, skipping")
             return
@@ -61,6 +62,7 @@ class AggregatePerPage(beam.DoFn):
 
         gt_boxes = list(grouped["gt_boxes"])
         pred_boxes = list(grouped["pred_boxes"])
+        logger.info(f"  {image_id}: {len(gt_boxes)} GT boxes, {len(pred_boxes)} pred boxes")
 
         s_star_texts = [r["ocr_text"] for r in gt_boxes]
         s_texts = [r["ocr_text"] for r in pred_boxes]
