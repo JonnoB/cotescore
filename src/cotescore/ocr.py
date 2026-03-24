@@ -3,7 +3,8 @@ from collections import Counter
 from typing import Callable, List, Dict, Union, Tuple, Optional
 import numpy as np
 
-from cotescore.types import CDDDecomposition, SpACERDecomposition
+from cotescore.types import CDDDecomposition, RegionChars, SpACERDecomposition
+from cotescore._distributions import PredRegions
 
 
 
@@ -327,6 +328,171 @@ def spacer_decomp(
     return SpACERDecomposition(
         d_pars_macro=pars_mac,
         d_pars_micro=pars_mic,
+        d_ocr_macro=ocr_mac,
+        d_ocr_micro=ocr_mic,
+        d_int_macro=int_mac,
+        d_int_micro=int_mic,
+        d_total_macro=tot_mac,
+        d_total_micro=tot_mic,
+    )
+
+
+# =============================================================================
+# Spatial decomposition API
+#
+# Full-information CDD / SpACER decomposition from four structured inputs:
+#
+#   gt_chars          RegionChars  ->  Q  (all GT tokens) and per-GT-region
+#                                      GT token counts (S* micro reference)
+#   pred_region_pixels RegionPixels -> R  (GT tokens captured by predicted
+#                                      regions, via pixel-coordinate join)
+#   pred_gt_ocr       Dict[int,str] -> S* (OCR on GT regions, keyed by
+#                                      gt_region_id)
+#   pred_parse_ocr    Dict[int,str] -> S  (OCR on predicted regions, keyed
+#                                      by pred_region_id)
+#
+# d_pars_micro is None: GT and predicted regions use different id spaces with
+# no natural pairing, so per-box deletions cannot be meaningfully accumulated.
+# All other macro and micro components are computed when data is available.
+#
+# =============================================================================
+
+
+def cdd_decomp_spatial(
+    gt_chars: RegionChars,
+    pred_region_pixels: PredRegions,
+    pred_gt_ocr: Dict[int, str],
+    pred_parse_ocr: Dict[int, str],
+    metric: Callable[[Counter, Counter], float] = jsd_distance,
+    mode: str = "char",
+) -> CDDDecomposition:
+    """CDD decomposition from four structured spatial inputs.
+
+    Builds the Q, R, S*, and S distributions internally and delegates to
+    :func:`cdd_decomp`.
+
+    Args:
+        gt_chars:           GT characters with pixel midpoints and GT region
+                            ids. Provides Q and the per-GT-region reference
+                            counts used to isolate OCR error.
+        pred_region_pixels: Pixel membership for predicted regions. Used to
+                            build R via a pixel-coordinate join with
+                            ``gt_chars``.
+        pred_gt_ocr:        OCR output on GT regions, keyed by GT region id.
+                            Builds S* (OCR error in isolation).
+        pred_parse_ocr:     OCR output on predicted regions, keyed by
+                            predicted region id. Builds S (combined error).
+        metric:             Callable ``(Counter, Counter) -> float``.
+                            Defaults to :func:`jsd_distance` (sqrt-JSD).
+        mode:               ``'char'`` (default) or ``'word'``. Passed to
+                            :func:`text_to_counter` when tokenising OCR text.
+
+    Returns:
+        :class:`CDDDecomposition`. Components requiring absent data are None.
+    """
+    from cotescore._distributions import build_R_spatial
+
+    Q = Counter(gt_chars.tokens.tolist())
+    R_agg, _ = build_R_spatial(gt_chars, pred_region_pixels)
+    S_star = text_to_counter(list(pred_gt_ocr.values()), mode) if pred_gt_ocr else Counter()
+    S = text_to_counter(list(pred_parse_ocr.values()), mode) if pred_parse_ocr else Counter()
+
+    return cdd_decomp(
+        {"gt": Q, "parsing": R_agg, "ocr": S_star, "total": S},
+        metric=metric,
+        mode=mode,
+    )
+
+
+def spacer_decomp_spatial(
+    gt_chars: RegionChars,
+    pred_region_pixels: PredRegions,
+    pred_gt_ocr: Dict[int, str],
+    pred_parse_ocr: Dict[int, str],
+    mode: str = "char",
+) -> SpACERDecomposition:
+    """SpACER decomposition from four structured spatial inputs.
+
+    Builds per-region paired lists for micro scores where a natural pairing
+    exists. ``d_pars_micro`` is always ``None`` because GT and predicted
+    regions use different id spaces with no natural 1:1 pairing.
+
+    Args:
+        gt_chars:           GT characters with pixel midpoints and GT region
+                            ids.
+        pred_region_pixels: Pixel membership for predicted regions.
+        pred_gt_ocr:        OCR output on GT regions keyed by GT region id.
+        pred_parse_ocr:     OCR output on predicted regions keyed by
+                            predicted region id.
+        mode:               ``'char'`` (default) or ``'word'``.
+
+    Returns:
+        :class:`SpACERDecomposition`. ``d_pars_micro`` is always ``None``.
+        Other components requiring absent data are also ``None``.
+    """
+    from cotescore._distributions import build_R_spatial
+
+    Q = Counter(gt_chars.tokens.tolist())
+    R_agg, R_per_pred = build_R_spatial(gt_chars, pred_region_pixels)
+
+    # --- d_pars (macro only) ---
+    pars_mac: Optional[float] = None
+    if Q or R_agg:
+        E_hat, C, D_macro, _ = _spacer_counts([Q], [R_agg])
+        pars_mac = _spacer_score(D_macro, E_hat, C)
+
+    # --- d_ocr (macro + micro, paired on gt_region_id) ---
+    ocr_mac: Optional[float] = None
+    ocr_mic: Optional[float] = None
+    if pred_gt_ocr:
+        # Per-GT-region GT char counts, keyed by region_id.
+        gt_per_region: Dict[int, Counter] = {}
+        for tok, rid in zip(gt_chars.tokens.tolist(), gt_chars.region_ids.tolist()):
+            if rid not in gt_per_region:
+                gt_per_region[rid] = Counter()
+            gt_per_region[rid][tok] += 1
+
+        all_gt_ids = sorted(set(gt_per_region) | set(pred_gt_ocr))
+        ocr_ref = [gt_per_region.get(rid, Counter()) for rid in all_gt_ids]
+        ocr_pred = [
+            text_to_counter(pred_gt_ocr[rid], mode) if rid in pred_gt_ocr else Counter()
+            for rid in all_gt_ids
+        ]
+        E_hat, C, D_macro, D_micro = _spacer_counts(ocr_ref, ocr_pred)
+        ocr_mac = _spacer_score(D_macro, E_hat, C)
+        ocr_mic = _spacer_score(D_micro, E_hat, C)
+
+    # --- d_int and d_total (macro + micro, paired on pred_region_id) ---
+    int_mac: Optional[float] = None
+    int_mic: Optional[float] = None
+    tot_mac: Optional[float] = None
+    tot_mic: Optional[float] = None
+    if pred_parse_ocr:
+        all_pred_ids = sorted(set(R_per_pred) | set(pred_parse_ocr))
+        pred_ref = [R_per_pred.get(rid, Counter()) for rid in all_pred_ids]
+        pred_s = [
+            text_to_counter(pred_parse_ocr[rid], mode) if rid in pred_parse_ocr else Counter()
+            for rid in all_pred_ids
+        ]
+
+        # d_int: R vs S per predicted region.
+        E_hat, C, D_macro, D_micro = _spacer_counts(pred_ref, pred_s)
+        int_mac = _spacer_score(D_macro, E_hat, C)
+        int_mic = _spacer_score(D_micro, E_hat, C)
+
+        # d_total: Q (aggregate) vs S (aggregate + per predicted region).
+        # D_micro uses R_j as reference (= Q chars in predicted region j),
+        # which is identical to d_int_micro. E_hat differs: uses Q vs S_agg.
+        S_agg = Counter(tok for c in pred_s for tok in c.elements())
+        all_tokens = set(Q) | set(S_agg)
+        E_hat_total = float(sum(abs(Q.get(t, 0) - S_agg.get(t, 0)) for t in all_tokens))
+        C_total = float(sum(Q.values()))
+        tot_mac = _spacer_score(float(max(0, sum(Q.values()) - sum(S_agg.values()))), E_hat_total, C_total)
+        tot_mic = _spacer_score(D_micro, E_hat_total, C_total)
+
+    return SpACERDecomposition(
+        d_pars_macro=pars_mac,
+        d_pars_micro=None,
         d_ocr_macro=ocr_mac,
         d_ocr_micro=ocr_mic,
         d_int_macro=int_mac,

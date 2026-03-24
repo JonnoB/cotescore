@@ -1,20 +1,28 @@
 """Tests for the OCR metric functions: text_to_counter, jsd_distance,
-spacer, spacer_micro, cdd_decomp, and spacer_decomp."""
+spacer, spacer_micro, cdd_decomp, spacer_decomp, cdd_decomp_spatial,
+and spacer_decomp_spatial."""
 
 from collections import Counter
 
+import numpy as np
 import pytest
 
 from cotescore import (
     CDDDecomposition,
     SpACERDecomposition,
-    jsd_distance,
+    RegionChars,
+    RegionPixels,
+    boxes_to_region_pixels,
     cdd_decomp,
+    cdd_decomp_spatial,
+    jsd_distance,
     spacer,
     spacer_micro,
     spacer_decomp,
+    spacer_decomp_spatial,
     text_to_counter,
 )
+from cotescore._distributions import build_R_from_region_pixels
 from cotescore.ocr import _spacer_counts
 
 
@@ -332,3 +340,237 @@ class TestSpACERDecomp:
         # SpACER = (2+2)/(2*4) = 0.5
         d = spacer_decomp({"gt": "aaaa", "total": "aa"})
         assert d.d_total_macro == pytest.approx(0.5)
+
+
+# =============================================================================
+# RegionChars / RegionPixels
+# =============================================================================
+
+
+class TestRegionChars:
+    def test_valid_construction(self):
+        rc = RegionChars(
+            tokens=np.array(["a", "b", "c"]),
+            xs=np.array([10, 20, 30]),
+            ys=np.array([5, 15, 25]),
+            region_ids=np.array([1, 1, 2]),
+        )
+        assert len(rc.tokens) == 3
+
+    def test_mismatched_lengths_raise(self):
+        with pytest.raises(ValueError):
+            RegionChars(
+                tokens=np.array(["a", "b"]),
+                xs=np.array([10]),
+                ys=np.array([5, 15]),
+                region_ids=np.array([1, 1]),
+            )
+
+    def test_non_1d_raises(self):
+        with pytest.raises(ValueError):
+            RegionChars(
+                tokens=np.array([["a", "b"]]),
+                xs=np.array([10, 20]),
+                ys=np.array([5, 15]),
+                region_ids=np.array([1, 1]),
+            )
+
+
+class TestRegionPixels:
+    def test_valid_construction(self):
+        rp = RegionPixels(
+            region_ids=np.array([0, 0, 1]),
+            xs=np.array([10, 11, 20]),
+            ys=np.array([5, 5, 15]),
+        )
+        assert len(rp.region_ids) == 3
+
+    def test_mismatched_lengths_raise(self):
+        with pytest.raises(ValueError):
+            RegionPixels(
+                region_ids=np.array([0, 1]),
+                xs=np.array([10]),
+                ys=np.array([5, 15]),
+            )
+
+
+# =============================================================================
+# build_R_from_region_pixels
+# =============================================================================
+
+
+def _make_gt_chars(chars_xy_rid):
+    """Helper: list of (char, x, y, region_id) -> RegionChars."""
+    tokens = np.array([r[0] for r in chars_xy_rid])
+    xs = np.array([r[1] for r in chars_xy_rid])
+    ys = np.array([r[2] for r in chars_xy_rid])
+    rids = np.array([r[3] for r in chars_xy_rid])
+    return RegionChars(tokens=tokens, xs=xs, ys=ys, region_ids=rids)
+
+
+def _make_pred_pixels(rid_xy):
+    """Helper: list of (region_id, x, y) -> RegionPixels."""
+    rids = np.array([r[0] for r in rid_xy])
+    xs = np.array([r[1] for r in rid_xy])
+    ys = np.array([r[2] for r in rid_xy])
+    return RegionPixels(region_ids=rids, xs=xs, ys=ys)
+
+
+class TestBuildRFromRegionPixels:
+    def test_perfect_coverage(self):
+        # All GT chars fall in one predicted region.
+        gt = _make_gt_chars([("a", 10, 5, 1), ("b", 20, 5, 1), ("a", 30, 5, 1)])
+        pred = _make_pred_pixels([(0, 10, 5), (0, 20, 5), (0, 30, 5)])
+        agg, per_region = build_R_from_region_pixels(gt, pred)
+        assert agg == Counter({"a": 2, "b": 1})
+        assert per_region[0] == Counter({"a": 2, "b": 1})
+
+    def test_missed_chars_absent(self):
+        # One GT char not in any predicted pixel → not counted in R.
+        gt = _make_gt_chars([("a", 10, 5, 1), ("b", 99, 99, 1)])
+        pred = _make_pred_pixels([(0, 10, 5)])
+        agg, per_region = build_R_from_region_pixels(gt, pred)
+        assert agg == Counter({"a": 1})
+        assert "b" not in agg
+
+    def test_overlap_double_counts(self):
+        # GT char at (10,5) covered by two pred regions → counted twice.
+        gt = _make_gt_chars([("a", 10, 5, 1)])
+        pred = _make_pred_pixels([(0, 10, 5), (1, 10, 5)])
+        agg, per_region = build_R_from_region_pixels(gt, pred)
+        assert agg["a"] == 2
+        assert per_region[0]["a"] == 1
+        assert per_region[1]["a"] == 1
+
+    def test_empty_pred_pixels(self):
+        gt = _make_gt_chars([("a", 10, 5, 1)])
+        pred = RegionPixels(
+            region_ids=np.array([], dtype=np.int64),
+            xs=np.array([], dtype=np.int64),
+            ys=np.array([], dtype=np.int64),
+        )
+        agg, per_region = build_R_from_region_pixels(gt, pred)
+        assert agg == Counter()
+        assert per_region == {}
+
+    def test_empty_gt_chars(self):
+        gt = RegionChars(
+            tokens=np.array([]),
+            xs=np.array([], dtype=np.int64),
+            ys=np.array([], dtype=np.int64),
+            region_ids=np.array([], dtype=np.int64),
+        )
+        pred = _make_pred_pixels([(0, 10, 5)])
+        agg, per_region = build_R_from_region_pixels(gt, pred)
+        assert agg == Counter()
+
+
+# =============================================================================
+# cdd_decomp_spatial
+# =============================================================================
+
+
+class TestCDDDecompSpatial:
+    def _perfect_setup(self):
+        gt = _make_gt_chars([("a", 0, 0, 1), ("b", 1, 0, 1), ("c", 2, 0, 2)])
+        pred = _make_pred_pixels([(0, 0, 0), (0, 1, 0), (0, 2, 0)])
+        ocr_gt = {1: "ab", 2: "c"}
+        ocr_parse = {0: "abc"}
+        return gt, pred, ocr_gt, ocr_parse
+
+    def test_perfect_d_pars_zero(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = cdd_decomp_spatial(gt, pred, ocr_gt, ocr_parse)
+        assert isinstance(d, CDDDecomposition)
+        assert d.d_pars == pytest.approx(0.0, abs=1e-9)
+
+    def test_perfect_d_ocr_zero(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = cdd_decomp_spatial(gt, pred, ocr_gt, ocr_parse)
+        assert d.d_ocr == pytest.approx(0.0, abs=1e-9)
+
+    def test_perfect_d_total_zero(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = cdd_decomp_spatial(gt, pred, ocr_gt, ocr_parse)
+        assert d.d_total == pytest.approx(0.0, abs=1e-9)
+
+    def test_missing_char_raises_d_pars(self):
+        # One GT char missed by parsing → R ≠ Q → d_pars > 0
+        gt = _make_gt_chars([("a", 0, 0, 1), ("b", 99, 99, 1)])
+        pred = _make_pred_pixels([(0, 0, 0)])
+        d = cdd_decomp_spatial(gt, pred, {}, {})
+        assert d.d_pars is not None and d.d_pars > 0.0
+
+    def test_empty_ocr_gives_none_components(self):
+        gt = _make_gt_chars([("a", 0, 0, 1)])
+        pred = _make_pred_pixels([(0, 0, 0)])
+        d = cdd_decomp_spatial(gt, pred, {}, {})
+        # S* and S are empty Counters, so d_ocr and d_total are computed
+        # (comparing Q to empty distributions) but not None.
+        assert d.d_pars is not None
+
+    def test_custom_metric(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = cdd_decomp_spatial(gt, pred, ocr_gt, ocr_parse, metric=lambda p, q: 42.0)
+        assert d.d_pars == pytest.approx(42.0)
+
+
+# =============================================================================
+# spacer_decomp_spatial
+# =============================================================================
+
+
+class TestSpACERDecompSpatial:
+    def _perfect_setup(self):
+        gt = _make_gt_chars([("a", 0, 0, 1), ("b", 1, 0, 1), ("c", 2, 0, 2)])
+        pred = _make_pred_pixels([(0, 0, 0), (0, 1, 0), (0, 2, 0)])
+        ocr_gt = {1: "ab", 2: "c"}
+        ocr_parse = {0: "abc"}
+        return gt, pred, ocr_gt, ocr_parse
+
+    def test_returns_spacer_decomposition(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = spacer_decomp_spatial(gt, pred, ocr_gt, ocr_parse)
+        assert isinstance(d, SpACERDecomposition)
+
+    def test_d_pars_micro_always_none(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = spacer_decomp_spatial(gt, pred, ocr_gt, ocr_parse)
+        assert d.d_pars_micro is None
+
+    def test_perfect_d_ocr_zero(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = spacer_decomp_spatial(gt, pred, ocr_gt, ocr_parse)
+        assert d.d_ocr_macro == pytest.approx(0.0, abs=1e-9)
+        assert d.d_ocr_micro == pytest.approx(0.0, abs=1e-9)
+
+    def test_perfect_d_pars_macro_zero(self):
+        gt, pred, ocr_gt, ocr_parse = self._perfect_setup()
+        d = spacer_decomp_spatial(gt, pred, ocr_gt, ocr_parse)
+        assert d.d_pars_macro == pytest.approx(0.0, abs=1e-9)
+
+    def test_overlap_increases_r_counts(self):
+        # GT char at (0,0) covered by two pred regions — R has double count.
+        gt = _make_gt_chars([("a", 0, 0, 1)])
+        pred = _make_pred_pixels([(0, 0, 0), (1, 0, 0)])
+        d = spacer_decomp_spatial(gt, pred, {}, {0: "aa", 1: "a"})
+        # R_agg has "a":2 (double counted), S_agg has "a":3.
+        # d_pars compares R(a:2) vs Q(a:1): E_hat=1, D_macro=0
+        # → SpACER = (0+1)/(2*1) = 0.5
+        assert d.d_pars_macro == pytest.approx(0.5)
+
+    def test_missing_region_in_ocr_gt_handled(self):
+        # pred_gt_ocr has no entry for region 2 — should not raise.
+        gt = _make_gt_chars([("a", 0, 0, 1), ("c", 2, 0, 2)])
+        pred = _make_pred_pixels([(0, 0, 0), (0, 2, 0)])
+        d = spacer_decomp_spatial(gt, pred, {1: "a"}, {0: "ac"})
+        assert d.d_ocr_macro is not None
+
+    def test_empty_ocr_inputs(self):
+        gt = _make_gt_chars([("a", 0, 0, 1)])
+        pred = _make_pred_pixels([(0, 0, 0)])
+        d = spacer_decomp_spatial(gt, pred, {}, {})
+        assert d.d_ocr_macro is None
+        assert d.d_int_macro is None
+        assert d.d_total_macro is None
+        assert d.d_pars_macro is not None

@@ -17,9 +17,12 @@ from .ocr import (
     spacer_micro,
     cdd_decomp,
     spacer_decomp,
+    cdd_decomp_spatial,
+    spacer_decomp_spatial,
 )
 from .class_metrics import cote_class, coverage_matrix, overlap_matrix, trespass_matrix
-from .types import ClassCOTeResult, TokenPositions, CDDDecomposition, SpACERDecomposition
+from .types import ClassCOTeResult, TokenPositions, RegionChars, RegionPixels, CDDDecomposition, SpACERDecomposition
+from .adapters import boxes_to_region_pixels
 from .visualisation import compute_cote_masks, visualize_cote_states
 from .dataset import load_limerick_example, extract_ssu_boxes
 from .alto_ssu_tagger import ALTOSSUTagger, assign_alto_ssu
@@ -38,14 +41,19 @@ __all__ = [
     "spacer_micro",
     "cdd_decomp",
     "spacer_decomp",
+    "cdd_decomp_spatial",
+    "spacer_decomp_spatial",
     "cote_class",
     "coverage_matrix",
     "overlap_matrix",
     "trespass_matrix",
     "ClassCOTeResult",
     "TokenPositions",
+    "RegionChars",
+    "RegionPixels",
     "CDDDecomposition",
     "SpACERDecomposition",
+    "boxes_to_region_pixels",
     "compute_cote_masks",
     "visualize_cote_states",
     "load_limerick_example",

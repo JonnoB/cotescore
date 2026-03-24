@@ -55,6 +55,56 @@ class TokenPositions:
 
 
 @dataclass(frozen=True)
+class RegionChars:
+    """GT characters with pixel midpoints and GT region membership.
+
+    All arrays are parallel, length N (one entry per character).
+
+    Attributes:
+        tokens:     1D array of token strings (characters or words).
+        xs:         1D integer array of x pixel coordinates.
+        ys:         1D integer array of y pixel coordinates.
+        region_ids: 1D integer array of GT region ids.
+    """
+
+    tokens:     np.ndarray  # shape (N,) dtype object
+    xs:         np.ndarray  # shape (N,) dtype int
+    ys:         np.ndarray  # shape (N,) dtype int
+    region_ids: np.ndarray  # shape (N,) dtype int
+
+    def __post_init__(self) -> None:
+        if not (self.tokens.ndim == self.xs.ndim == self.ys.ndim == self.region_ids.ndim == 1):
+            raise ValueError("tokens, xs, ys, region_ids must be 1D arrays")
+        if not (len(self.tokens) == len(self.xs) == len(self.ys) == len(self.region_ids)):
+            raise ValueError("tokens, xs, ys, region_ids must have the same length")
+
+
+@dataclass(frozen=True)
+class RegionPixels:
+    """Pixel membership for predicted regions.
+
+    Encodes which pixels belong to each predicted region. One row per pixel
+    in each predicted region; overlapping regions produce duplicate (x, y)
+    pairs with different region_ids, encoding the overlap naturally.
+
+    Attributes:
+        region_ids: 1D integer array of predicted region ids.
+        xs:         1D integer array of x pixel coordinates.
+        ys:         1D integer array of y pixel coordinates.
+    """
+
+    region_ids: np.ndarray  # shape (M,) dtype int
+    xs:         np.ndarray  # shape (M,) dtype int
+    ys:         np.ndarray  # shape (M,) dtype int
+
+    def __post_init__(self) -> None:
+        if not (self.region_ids.ndim == self.xs.ndim == self.ys.ndim == 1):
+            raise ValueError("region_ids, xs, ys must be 1D arrays")
+        if not (len(self.region_ids) == len(self.xs) == len(self.ys)):
+            raise ValueError("region_ids, xs, ys must have the same length")
+
+
+@dataclass(frozen=True)
 class CDDDecomposition:
     """Four-way CDD decomposition result.
 

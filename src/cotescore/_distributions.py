@@ -9,12 +9,17 @@ Do not import this module from outside the cotescore package.
 
 from __future__ import annotations
 
-from collections import Counter
-from typing import Sequence, Union
+from collections import Counter, defaultdict
+from typing import Dict, Sequence, Tuple, Union
 
 import numpy as np
 
-from cotescore.types import MaskInstance, TokenPositions
+from cotescore.types import MaskInstance, RegionChars, RegionPixels, TokenPositions
+
+# Accepted types for predicted region geometry in build_R_spatial / decomp functions.
+# RegionPixels: generic (supports polygons / arbitrary shapes).
+# np.ndarray:   (M, 4) array of [x, y, width, height] — fast vectorised bbox path.
+PredRegions = Union[RegionPixels, np.ndarray]
 
 
 def build_Q(token_positions: TokenPositions) -> Counter:
@@ -61,62 +66,129 @@ def build_S_star(token_lists: Sequence[Sequence[str]]) -> Counter:
     return Counter(token for tokens in token_lists for token in tokens)
 
 
-def build_R(
-    token_positions: TokenPositions,
-    pred_masks: Sequence[Union[np.ndarray, MaskInstance]],
-) -> Counter:
-    """Build R: distribution from predicted parsing on GT tokens.
+def build_R_from_region_pixels(
+    gt_chars: RegionChars,
+    pred_pixels: RegionPixels,
+) -> Tuple[Counter, Dict[int, Counter]]:
+    """Build R: GT token distribution projected through predicted regions.
 
-    For each predicted mask, identifies which GT token midpoints fall inside
-    it using direct 2D boolean indexing (``mask[ys, xs]``). A token whose
-    midpoint falls inside k overlapping masks is counted k times, encoding
-    both overlap-induced duplication and missed-token absence.
-
-    This operation is identical for character-level and word-level tokens —
-    only the content of ``token_positions.tokens`` differs.
+    Performs a hash join on pixel coordinates: for each GT character, finds
+    all predicted regions whose pixel set contains that character's midpoint.
+    A character whose midpoint falls in k overlapping predicted regions is
+    counted k times, encoding both overlap-induced duplication and
+    missed-character absence.
 
     Args:
-        token_positions: GT token positions with pixel-space coordinates in
-            the same frame as pred_masks.
-        pred_masks: Predicted region masks as 2D boolean arrays or
-            MaskInstance objects. All masks must share the same shape.
+        gt_chars:    GT characters with pixel midpoints and region membership.
+        pred_pixels: Pixel membership for predicted regions — one entry per
+                     pixel in each predicted region.
 
     Returns:
-        Counter mapping token -> count (with overlap duplications and
-        missed-token absences baked in).
-
-    Raises:
-        ValueError: If any mask is not 2D or masks are empty.
-        TypeError:  If any mask is not a numpy array.
+        Tuple of:
+            aggregate: Counter mapping token -> total count across all
+                       predicted regions (for CDD / macro SpACER).
+            per_region: Dict mapping pred_region_id -> Counter of tokens
+                        captured by that region (for micro SpACER).
     """
-    raw_masks: list[np.ndarray] = []
-    for p in pred_masks:
-        m = p.mask if isinstance(p, MaskInstance) else p
-        if not isinstance(m, np.ndarray):
-            raise TypeError("Each prediction mask must be a numpy array")
-        if m.ndim != 2:
-            raise ValueError("Each prediction mask must be 2D")
-        raw_masks.append(m.astype(bool, copy=False))
+    if len(pred_pixels.region_ids) == 0 or len(gt_chars.tokens) == 0:
+        return Counter(), {}
 
-    if not raw_masks or len(token_positions.tokens) == 0:
-        return Counter()
+    # Build (x, y) -> [pred_region_id, ...] lookup in one pass.
+    pixel_to_preds: defaultdict[Tuple[int, int], list] = defaultdict(list)
+    for rid, px, py in zip(
+        pred_pixels.region_ids.tolist(),
+        pred_pixels.xs.tolist(),
+        pred_pixels.ys.tolist(),
+    ):
+        pixel_to_preds[(px, py)].append(rid)
 
-    ys = token_positions.ys
-    xs = token_positions.xs
-    tokens = token_positions.tokens
+    per_region: Dict[int, Counter] = {}
+    aggregate: Counter = Counter()
 
-    # Bounds guard: tokens outside the canvas are treated as uncovered.
-    # Not expected to trigger in normal use — all token midpoints are
-    # inherently within the reference image.
-    h, w = raw_masks[0].shape
-    valid = (ys >= 0) & (ys < h) & (xs >= 0) & (xs < w)
-    ys_v = ys[valid]
-    xs_v = xs[valid]
-    tokens_v = tokens[valid]
+    for token, x, y in zip(
+        gt_chars.tokens.tolist(),
+        gt_chars.xs.tolist(),
+        gt_chars.ys.tolist(),
+    ):
+        for rid in pixel_to_preds.get((x, y), []):
+            if rid not in per_region:
+                per_region[rid] = Counter()
+            per_region[rid][token] += 1
+            aggregate[token] += 1
 
-    result: Counter = Counter()
-    for mask in raw_masks:
-        in_mask: np.ndarray = mask[ys_v, xs_v]  # boolean (N_valid,)
-        result.update(tokens_v[in_mask].tolist())
+    return aggregate, per_region
 
-    return result
+
+def build_R_from_bboxes(
+    gt_chars: RegionChars,
+    bboxes: np.ndarray,
+) -> Tuple[Counter, Dict[int, Counter]]:
+    """Build R from axis-aligned bounding boxes using vectorised numpy operations.
+
+    Faster alternative to :func:`build_R_from_region_pixels` for the common
+    case where predicted regions are rectangles.  Uses numpy broadcasting to
+    test all GT character midpoints against all boxes simultaneously, avoiding
+    pixel enumeration entirely.
+
+    Args:
+        gt_chars: GT characters with pixel midpoints.
+        bboxes:   (M, 4) float array of predicted regions in ``[x, y, w, h]``
+                  format, in the same pixel coordinate frame as ``gt_chars``.
+
+    Returns:
+        Same as :func:`build_R_from_region_pixels`:
+            aggregate: Counter mapping token -> total count across all regions.
+            per_region: Dict mapping region index (0-based) -> Counter.
+    """
+    if len(bboxes) == 0 or len(gt_chars.tokens) == 0:
+        return Counter(), {}
+
+    bboxes = np.asarray(bboxes, dtype=np.float64)
+    x1 = bboxes[:, 0]
+    y1 = bboxes[:, 1]
+    x2 = bboxes[:, 0] + bboxes[:, 2]
+    y2 = bboxes[:, 1] + bboxes[:, 3]
+
+    gt_xs = gt_chars.xs.astype(np.float64)  # (N,)
+    gt_ys = gt_chars.ys.astype(np.float64)  # (N,)
+
+    # in_box[i, j] = True if GT char i falls inside predicted region j
+    in_box = (
+        (gt_xs[:, None] >= x1[None, :]) &
+        (gt_xs[:, None] < x2[None, :]) &
+        (gt_ys[:, None] >= y1[None, :]) &
+        (gt_ys[:, None] < y2[None, :])
+    )  # (N, M) bool
+
+    per_region: Dict[int, Counter] = {}
+    aggregate: Counter = Counter()
+
+    for j in range(len(bboxes)):
+        chars_in = gt_chars.tokens[in_box[:, j]]
+        if len(chars_in):
+            c = Counter(chars_in.tolist())
+            per_region[j] = c
+            aggregate.update(c)
+
+    return aggregate, per_region
+
+
+def build_R_spatial(
+    gt_chars: RegionChars,
+    pred_regions: "PredRegions",
+) -> Tuple[Counter, Dict[int, Counter]]:
+    """Dispatch to the appropriate R builder based on the type of pred_regions.
+
+    Args:
+        gt_chars:     GT characters with pixel midpoints.
+        pred_regions: Either a :class:`RegionPixels` (pixel-membership table,
+                      supports arbitrary shapes) or a numpy array of shape
+                      ``(M, 4)`` with ``[x, y, w, h]`` bounding boxes
+                      (vectorised fast path).
+
+    Returns:
+        Same as :func:`build_R_from_region_pixels`.
+    """
+    if isinstance(pred_regions, np.ndarray):
+        return build_R_from_bboxes(gt_chars, pred_regions)
+    return build_R_from_region_pixels(gt_chars, pred_regions)
