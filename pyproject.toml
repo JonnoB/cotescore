@@ -64,6 +64,21 @@ models = [
     "torchvision>=0.15.0",
 ]
 
+pipeline = [
+    "apache-beam>=2.69.0",
+    "pyarrow>=12.0.0",
+    "pyyaml>=6.0",
+    "pytesseract>=0.3.10",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "transformers>=4.30.0",
+    "easyocr>=1.7.0",
+    #"paddleocr>=2.9.0",
+    # paddlepaddle (CPU or GPU) must be installed separately before paddleocr:
+    #   CPU: uv pip install paddlepaddle
+    #   GPU: uv pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
+]
+
 paddle-benchmark = [
     # benchmark deps only, no torch
     "pycocotools>=2.0.0",
@@ -84,7 +99,7 @@ Repository = "https://github.com/JonnoB/cot_analysis"
 where = ["src"]
 
 [tool.setuptools.package-data]
-cotescore = ["data/**/*"]
+cotescore = ["assets/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -117,3 +132,30 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "marimo>=0.17.6",
+    "pytest>=8.4.2",
+]
+pipeline = [
+    "apache-beam>=2.69.0",
+    "pyarrow>=12.0.0",
+    "pyyaml>=6.0",
+    "pytesseract>=0.3.10",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "transformers>=4.30.0",
+    "easyocr>=1.7.0",
+    "paddleocr>=2.9.0",
+    "paddlepaddle>=3.0.0",
+    # For GPU on Lightning AI (CUDA 13.0), reinstall paddlepaddle after uv sync:
+    #   uv pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu130/ --reinstall
+]
+
+# Install both groups when running plain `uv sync`
+# torch/torchvision are installed as CPU wheels from PyPI by default.
+# For GPU on Lightning AI (CUDA 13.0), run this after uv sync:
+#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130 --reinstall
+[tool.uv]
+default-groups = ["dev", "pipeline"]

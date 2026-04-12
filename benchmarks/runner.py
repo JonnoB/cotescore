@@ -19,9 +19,9 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
-from cotescore.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset
+from cotescore.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset, SpiritualistDataset
 from cotescore.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cotescore.metrics import (
+from cotescore.layout import (
     coverage,
     overlap,
     trespass,
@@ -230,6 +230,14 @@ class BenchmarkRunner:
                 if self.groundtruth_path is None:
                     raise ValueError("groundtruth_path must be provided for hnla2013 dataset")
                 self._dataset = HNLA2013Dataset(
+                    images_path=self.dataset_path,
+                    groundtruth_path=self.groundtruth_path,
+                    image_ext=self.image_ext,
+                )
+            elif self.dataset_name == "spiritualist":
+                if self.groundtruth_path is None:
+                    raise ValueError("groundtruth_path must be provided for spiritualist dataset")
+                self._dataset = SpiritualistDataset(
                     images_path=self.dataset_path,
                     groundtruth_path=self.groundtruth_path,
                     image_ext=self.image_ext,

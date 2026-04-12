@@ -652,6 +652,146 @@ class HNLA2013Dataset:
         return self.annotations_by_image[self.images[idx]]
 
 
+class SpiritualistDataset:
+    """Loader for the Spiritualist dataset with SSU-tagged Transkribus ALTO XML ground truth.
+
+    Assumes SSU attributes have already been assigned to TextLine elements
+    (e.g. via ALTOSSUTagger). Each TextLine becomes one annotation.
+    """
+
+    def __init__(
+        self,
+        images_path: Path,
+        groundtruth_path: Path,
+        image_ext: str = "jpg",
+    ):
+        """
+        Args:
+            images_path: Directory containing JPEG image files.
+            groundtruth_path: Directory containing SSU-tagged ALTO XML files.
+            image_ext: Image file extension to glob for (default: 'jpg').
+        """
+        self.images_path = Path(images_path)
+        self.groundtruth_path = Path(groundtruth_path)
+        self.image_ext = image_ext
+        self.images = []
+        self.annotations_by_image = {}
+        self._loaded = False
+
+    def load(self):
+        """Load the dataset from disk."""
+        if self._loaded:
+            return
+
+        if not self.images_path.exists():
+            raise FileNotFoundError(f"Images directory not found: {self.images_path}")
+        if not self.groundtruth_path.exists():
+            raise FileNotFoundError(f"Ground truth directory not found: {self.groundtruth_path}")
+
+        xml_by_stem = {xml_path.stem: xml_path for xml_path in self.groundtruth_path.glob("*.xml")}
+
+        for img_path in sorted(self.images_path.glob(f"*.{self.image_ext}")):
+            xml_path = xml_by_stem.get(img_path.stem)
+            if xml_path is None:
+                logger.warning(f"No ground truth XML found for {img_path.name}, skipping")
+                continue
+
+            annotations, orig_w, orig_h = self._parse_xml(xml_path, img_path.stem)
+
+            if orig_w > 0:
+                with Image.open(img_path) as im:
+                    img_w, img_h = im.size
+                if img_w != orig_w:
+                    scale = img_w / orig_w
+                    for ann in annotations:
+                        ann["x"] *= scale
+                        ann["y"] *= scale
+                        ann["width"] *= scale
+                        ann["height"] *= scale
+
+            self.images.append(str(img_path))
+            self.annotations_by_image[str(img_path)] = annotations
+
+        self._loaded = True
+
+    def _parse_xml(self, xml_path: Path, page_id: str) -> tuple:
+        """Parse an SSU-tagged ALTO XML file and return (annotations, orig_width, orig_height)."""
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+
+        # Detect namespace from root tag
+        tag = root.tag
+        ns_uri = tag[1: tag.index("}")] if tag.startswith("{") else ""
+        ns = {"alto": ns_uri} if ns_uri else {}
+
+        def q(name):
+            return f"alto:{name}" if ns else name
+
+        layout = root.find(q("Layout"), ns)
+        page = layout.find(q("Page"), ns) if layout is not None else None
+        orig_w = int(page.get("WIDTH", 0)) if page is not None else 0
+        orig_h = int(page.get("HEIGHT", 0)) if page is not None else 0
+
+        print_space = page.find(q("PrintSpace"), ns) if page is not None else None
+        if print_space is None:
+            return [], orig_w, orig_h
+
+        # Collect unique SSU strings in document order for stable integer mapping
+        ssu_strings: List[str] = []
+        for block in print_space.findall(q("TextBlock"), ns):
+            for line in block.findall(q("TextLine"), ns):
+                ssu = line.get("SSU")
+                if ssu and ssu not in ssu_strings:
+                    ssu_strings.append(ssu)
+        ssu_to_int = {s: i + 1 for i, s in enumerate(ssu_strings)}
+
+        annotations = []
+        for block in print_space.findall(q("TextBlock"), ns):
+            for line in block.findall(q("TextLine"), ns):
+                ssu = line.get("SSU")
+                if not ssu:
+                    continue
+                try:
+                    x = int(line.get("HPOS", 0))
+                    y = int(line.get("VPOS", 0))
+                    w = int(line.get("WIDTH", 0))
+                    h = int(line.get("HEIGHT", 0))
+                except (ValueError, TypeError):
+                    logger.warning(f"Could not parse TextLine bbox in {xml_path.name}, skipping")
+                    continue
+
+                annotations.append({
+                    "x": float(x),
+                    "y": float(y),
+                    "width": float(w),
+                    "height": float(h),
+                    "class": "text",
+                    "ssu_id": ssu_to_int[ssu],
+                    "ssu_class": "object",
+                    "confidence": 1.0,
+                    "page_id": page_id,
+                })
+
+        return annotations, orig_w, orig_h
+
+    def __len__(self) -> int:
+        if not self._loaded:
+            self.load()
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
+        image_path = self.images[idx]
+        return {
+            "image_path": image_path,
+            "annotations": self.annotations_by_image[image_path],
+            "filename": Path(image_path).name,
+        }
+
+
 def extract_ssu_boxes(ground_truth: dict) -> list:
     """Extract SSU-level bounding boxes from a ground-truth dict.
 
@@ -699,7 +839,7 @@ def load_limerick_example() -> Tuple[dict, np.ndarray, list]:
         Use :func:`extract_ssu_boxes` to build tagged GT boxes for
         :func:`~cotescore.adapters.boxes_to_gt_ssu_map`.
     """
-    pkg = files("cotescore") / "data" / "limerick_case_study"
+    pkg = files("cotescore") / "assets" / "limerick_case_study"
     ground_truth = json.loads((pkg / "ground_truth.json").read_text())
     image = np.array(Image.open(pkg / "limerick_image.png"))
     predictions = json.loads((pkg / "predictions.json").read_text())

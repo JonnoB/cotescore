@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from cotescore.types import Label
+from cotescore.types import Label, RegionPixels
 
 
 BBox = Dict[str, Any]
@@ -157,6 +157,55 @@ def boxes_to_pred_masks(
             m[y1:y2, x1:x2] = True
         masks.append(m)
     return masks
+
+
+def boxes_to_region_pixels(
+    boxes: Sequence[BBox],
+    *,
+    scale: float = 1.0,
+    region_id_key: Optional[str] = None,
+) -> RegionPixels:
+    """Convert bounding boxes to a flat pixel-membership table.
+
+    Each pixel inside each box is emitted as a ``(region_id, x, y)`` entry.
+    Overlapping boxes produce duplicate ``(x, y)`` pairs with different
+    ``region_ids``, preserving overlap information for R construction.
+
+    Args:
+        boxes: Sequence of bounding box dicts in XYWH format.
+        scale: Scale factor applied to each box before rasterization.
+        region_id_key: Optional key in each box dict whose value is used as
+            the region id. When ``None`` (default), the 0-based index of the
+            box in ``boxes`` is used.
+
+    Returns:
+        :class:`RegionPixels` with one entry per pixel in each box.
+        Returns an empty ``RegionPixels`` if ``boxes`` is empty or all boxes
+        have zero area after scaling.
+    """
+    all_rids: List[int] = []
+    all_xs: List[int] = []
+    all_ys: List[int] = []
+
+    for idx, box in enumerate(boxes):
+        rid = int(box[region_id_key]) if region_id_key is not None else idx
+        x1 = int(round(float(box["x"]) * scale))
+        y1 = int(round(float(box["y"]) * scale))
+        x2 = int(round((float(box["x"]) + float(box["width"])) * scale))
+        y2 = int(round((float(box["y"]) + float(box["height"])) * scale))
+        if x2 <= x1 or y2 <= y1:
+            continue
+        for py in range(y1, y2):
+            for px in range(x1, x2):
+                all_rids.append(rid)
+                all_xs.append(px)
+                all_ys.append(py)
+
+    return RegionPixels(
+        region_ids=np.array(all_rids, dtype=np.int64),
+        xs=np.array(all_xs, dtype=np.int64),
+        ys=np.array(all_ys, dtype=np.int64),
+    )
 
 
 def build_ssu_to_class(
