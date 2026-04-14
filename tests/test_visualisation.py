@@ -21,11 +21,11 @@ W, H = 100, 100  # default image size for tests
 def _gt_map(boxes):
     """Rasterize GT boxes (auto-assigned ssu_id starting at 1)."""
     tagged = [{**b, "ssu_id": i + 1} for i, b in enumerate(boxes)]
-    return boxes_to_gt_ssu_map(tagged, W, H, scale=1.0)
+    return boxes_to_gt_ssu_map(tagged, W, H, W, H)
 
 
 def _pred_masks(boxes):
-    return boxes_to_pred_masks(boxes, W, H, scale=1.0)
+    return boxes_to_pred_masks(boxes, W, H, W, H)
 
 
 def _sum_masks(masks):

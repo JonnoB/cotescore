@@ -19,7 +19,7 @@ sys.path.insert(0, str(project_root))
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
 from cotescore.dataset import HNLA2013Dataset
-from cotescore.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.adapters import compute_canvas, boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cotescore.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
 
 EVAL_MAX_DIM = 2000
@@ -290,9 +290,9 @@ def main():
         with Image.open(image_path) as img:
             image_width, image_height = img.size
 
-        w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
-        gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
-        pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
+        canvas_w, canvas_h = compute_canvas(image_width, image_height, EVAL_MAX_DIM)
+        gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, image_width, image_height, canvas_w, canvas_h)
+        pred_masks = boxes_to_pred_masks(predictions, image_width, image_height, canvas_w, canvas_h)
 
         metrics = {
             "mean_iou": mean_iou(predictions, ground_truth),

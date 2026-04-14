@@ -103,8 +103,8 @@ def _(boxes_to_gt_ssu_map, boxes_to_pred_masks, cote_score, patches, plt):
 
         # Convert box dicts to mask-based inputs required by the metrics API
         gt_boxes_with_ids = [{**b, "ssu_id": i + 1} for i, b in enumerate(gt_boxes)]
-        gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes_with_ids, img_width, img_height)
-        pred_masks = boxes_to_pred_masks(pred_boxes, img_width, img_height)
+        gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes_with_ids, img_width, img_height, img_width, img_height)
+        pred_masks = boxes_to_pred_masks(pred_boxes, img_width, img_height, img_width, img_height)
 
         cot, c, o, t, e = cote_score(gt_ssu_map, pred_masks)
 

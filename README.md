@@ -53,18 +53,18 @@ The library ships with a bundled limerick case study that you can use to try it 
 
 ```python
 from cotescore import cote_score, load_limerick_example, extract_ssu_boxes
-from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks, eval_shape
+from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks, compute_canvas
 
 # Load the bundled example: ground-truth dict, document image, and example predictions
 ground_truth, image, pred_boxes = load_limerick_example()
 
 h, w = image.shape[:2]
-_, _, scale = eval_shape(w, h)
+canvas_w, canvas_h = compute_canvas(w, h)
 
 # Build tagged SSU-level GT boxes and rasterize to a 2-D SSU id map
 gt_boxes = extract_ssu_boxes(ground_truth)
-gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, w, h, scale=scale)
-preds = boxes_to_pred_masks(pred_boxes, w, h, scale=scale)
+gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, w, h, canvas_w, canvas_h)
+preds = boxes_to_pred_masks(pred_boxes, w, h, canvas_w, canvas_h)
 
 # Compute the COTe score
 cote, C, O, T, E = cote_score(gt_ssu_map, preds)

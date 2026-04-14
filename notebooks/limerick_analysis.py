@@ -310,17 +310,17 @@ def _(
     img_h = int(ground_truth["page"]["height"])
 
     # Convert GT boxes to SSU map (required by new cote_score API)
-    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_w, img_h)
+    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_w, img_h, img_w, img_h)
 
     # Scenario 1: GT=Line, Pred=Para (paragraph predictions vs line ground truth)
     m1 = calculate_detection_metrics(para_boxes, line_boxes)
     mean_iou_1 = mean_iou(para_boxes, line_boxes)
-    coverage_1, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(para_boxes, img_w, img_h))
+    coverage_1, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(para_boxes, img_w, img_h, img_w, img_h))
 
     # Scenario 2: GT=Para, Pred=Line (line predictions vs paragraph ground truth)
     m2 = calculate_detection_metrics(line_boxes, para_boxes)
     mean_iou_2 = mean_iou(line_boxes, para_boxes)
-    coverage_2, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(line_boxes, img_w, img_h))
+    coverage_2, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(line_boxes, img_w, img_h, img_w, img_h))
 
     # Build comparison DataFrame
     comparison_df = pd.DataFrame(
@@ -408,8 +408,8 @@ def _(
 ):
     # Rasterize GT boxes to an SSU id map and pred boxes to binary masks
     _h, _w = image_array.shape[:2]
-    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, _w, _h)
-    _pred_masks = boxes_to_pred_masks(pred_boxes, _w, _h)
+    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, _w, _h, _w, _h)
+    _pred_masks = boxes_to_pred_masks(pred_boxes, _w, _h, _w, _h)
 
     # Compute COTe pixel-state masks
     cote_masks = compute_cote_masks(_gt_ssu_map, _pred_masks)
@@ -443,8 +443,8 @@ def _(
     f1_score = f1(pred_boxes, gt_boxes)
 
     # Convert to SSU map and pred masks (required by new cote_score API)
-    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_wx, img_hx)
-    _pred_masks = boxes_to_pred_masks(pred_boxes, img_wx, img_hx)
+    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_wx, img_hx, img_wx, img_hx)
+    _pred_masks = boxes_to_pred_masks(pred_boxes, img_wx, img_hx, img_wx, img_hx)
 
     # Compute COTe score (C - O - T)
     cote, C, O, T, E = cote_score(_gt_ssu_map, _pred_masks)

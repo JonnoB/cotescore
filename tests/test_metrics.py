@@ -31,11 +31,11 @@ def _boxes_to_gt_ssu_map(gt_boxes, image_width: int, image_height: int) -> np.nd
         gg = dict(g)
         gg["ssu_id"] = idx
         gt_boxes_with_id.append(gg)
-    return boxes_to_gt_ssu_map(gt_boxes_with_id, image_width, image_height, scale=1.0)
+    return boxes_to_gt_ssu_map(gt_boxes_with_id, image_width, image_height, image_width, image_height)
 
 
 def _boxes_to_pred_masks(pred_boxes, image_width: int, image_height: int):
-    return boxes_to_pred_masks(pred_boxes, image_width, image_height, scale=1.0)
+    return boxes_to_pred_masks(pred_boxes, image_width, image_height, image_width, image_height)
 
 
 class TestCoverage:

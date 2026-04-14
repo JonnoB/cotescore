@@ -1,7 +1,7 @@
 """Adaptation utilities for bridging box-based data to mask-first COTe evaluation.
 
 This module centralizes common utilities used across runners, scripts, and tests:
-- evaluation scaling helpers
+- evaluation canvas sizing
 - box rasterization into SSU-id maps and prediction masks
 - box geometry helpers
 """
@@ -18,49 +18,58 @@ from cotescore.types import Label, RegionPixels
 BBox = Dict[str, Any]
 
 
-def eval_shape(orig_w: int, orig_h: int, max_dim: int = 2000) -> Tuple[int, int, float]:
-    """Compute the evaluation canvas size by scaling the image's longest side to ``max_dim``.
+def compute_canvas(src_w: int, src_h: int, max_dim: int = 2000) -> Tuple[int, int]:
+    """Compute an evaluation canvas size by scaling the longest side to ``max_dim``.
 
-    If the image already fits within ``max_dim`` on its longest side, no
-    scaling is applied (scale factor = 1.0).
+    Use this when you want per-image canvas sizing that is capped to avoid
+    creating excessively large pixel maps.  For a fixed canvas shared across
+    many images (e.g. an entire dataset), simply pass the desired dimensions
+    directly to :func:`boxes_to_gt_ssu_map` and :func:`boxes_to_pred_masks`
+    without calling this helper.
+
+    If the image already fits within ``max_dim`` on its longest side, the
+    source dimensions are returned unchanged.
 
     Args:
-        orig_w: Original image width in pixels.
-        orig_h: Original image height in pixels.
+        src_w: Source image width in pixels.
+        src_h: Source image height in pixels.
         max_dim: Maximum allowed size for the longest dimension (default 2000).
 
     Returns:
-        A tuple ``(eval_w, eval_h, scale)`` where ``eval_w`` and ``eval_h``
-        are the scaled dimensions (minimum 1) and ``scale`` is the factor
-        applied to original coordinates.
+        A tuple ``(canvas_w, canvas_h)`` — the canvas dimensions to use,
+        aspect-ratio preserved and capped at ``max_dim`` on the longest side
+        (minimum 1 on each side).
 
     Raises:
-        ValueError: If ``orig_w`` or ``orig_h`` is not positive.
+        ValueError: If ``src_w`` or ``src_h`` is not positive.
     """
-    if orig_w <= 0 or orig_h <= 0:
+    if src_w <= 0 or src_h <= 0:
         raise ValueError("Invalid image size")
-    scale = min(1.0, float(max_dim) / float(max(orig_w, orig_h)))
-    w_eval = max(1, int(round(orig_w * scale)))
-    h_eval = max(1, int(round(orig_h * scale)))
-    return w_eval, h_eval, scale
+    scale = min(1.0, float(max_dim) / float(max(src_w, src_h)))
+    canvas_w = max(1, int(round(src_w * scale)))
+    canvas_h = max(1, int(round(src_h * scale)))
+    return canvas_w, canvas_h
 
 
-def scale_box_xywh(box: BBox, scale: float) -> Tuple[int, int, int, int]:
+def scale_box_xywh(
+    box: BBox, scale_x: float, scale_y: float
+) -> Tuple[int, int, int, int]:
     """Scale an XYWH bounding box and convert it to integer XYXY coordinates.
 
     Args:
         box: Bounding box dict with keys ``"x"``, ``"y"``, ``"width"``, and
             ``"height"`` in XYWH format.
-        scale: Multiplicative scale factor to apply to all coordinates.
+        scale_x: Multiplicative scale factor to apply to x coordinates.
+        scale_y: Multiplicative scale factor to apply to y coordinates.
 
     Returns:
         A tuple ``(x1, y1, x2, y2)`` of rounded integer pixel coordinates in
         XYXY format.
     """
-    x1 = int(round(float(box["x"]) * scale))
-    y1 = int(round(float(box["y"]) * scale))
-    x2 = int(round((float(box["x"]) + float(box["width"])) * scale))
-    y2 = int(round((float(box["y"]) + float(box["height"])) * scale))
+    x1 = int(round(float(box["x"]) * scale_x))
+    y1 = int(round(float(box["y"]) * scale_y))
+    x2 = int(round((float(box["x"]) + float(box["width"])) * scale_x))
+    y2 = int(round((float(box["y"]) + float(box["height"])) * scale_y))
     return x1, y1, x2, y2
 
 
@@ -87,38 +96,52 @@ def clamp_box(x1: int, y1: int, x2: int, y2: int, w: int, h: int) -> Tuple[int, 
 
 def boxes_to_gt_ssu_map(
     boxes: Sequence[BBox],
-    w: int,
-    h: int,
+    src_w: int,
+    src_h: int,
+    canvas_w: int,
+    canvas_h: int,
     *,
-    scale: float = 1.0,
     ssu_id_key: str = "ssu_id",
 ) -> np.ndarray:
     """Rasterize ground-truth SSU boxes onto a 2D SSU id map.
 
-    Each box is scaled, clamped to the canvas, and painted with its integer
-    SSU id. A first-write-wins policy is used to handle small boundary overlaps
-    that can arise from rounding in real-world annotations: once a pixel has
-    been assigned a non-zero SSU id it will not be overwritten.
+    Each box is scaled from the source coordinate space ``(src_w, src_h)``
+    onto the output canvas ``(canvas_w, canvas_h)``, clamped, and painted with
+    its integer SSU id.  A first-write-wins policy is used to handle small
+    boundary overlaps that can arise from rounding in real-world annotations:
+    once a pixel has been assigned a non-zero SSU id it will not be overwritten.
+
+    The source and canvas dimensions may differ — for example when GT
+    annotations were made at a lower resolution than the prediction image, or
+    when a fixed canvas size is shared across a dataset.  Pass the same
+    ``(canvas_w, canvas_h)`` to :func:`boxes_to_pred_masks` so that both maps
+    are on the same coordinate grid.
+
+    To compute a per-image canvas capped at a maximum dimension, use
+    :func:`compute_canvas` to obtain ``(canvas_w, canvas_h)`` first.
 
     Args:
         boxes: Sequence of ground-truth annotation boxes in XYWH format, each
             containing at minimum the ``ssu_id_key`` field.
-        w: Canvas width in pixels.
-        h: Canvas height in pixels.
-        scale: Scale factor applied to each box before rasterization.
+        src_w: Width of the coordinate space the boxes are defined in.
+        src_h: Height of the coordinate space the boxes are defined in.
+        canvas_w: Width of the output map in pixels.
+        canvas_h: Height of the output map in pixels.
         ssu_id_key: Key in each box dict that holds the integer SSU id
             (default ``"ssu_id"``).
 
     Returns:
-        A 2D ``int32`` array of shape ``(h, w)`` where each pixel holds the
-        SSU id of the ground-truth region it belongs to (0 = background).
+        A 2D ``int32`` array of shape ``(canvas_h, canvas_w)`` where each pixel
+        holds the SSU id of the ground-truth region it belongs to
+        (0 = background).
     """
-
-    gt_map = np.zeros((h, w), dtype=np.int32)
+    scale_x = canvas_w / src_w
+    scale_y = canvas_h / src_h
+    gt_map = np.zeros((canvas_h, canvas_w), dtype=np.int32)
     for g in boxes:
         ssu_id = int(g[ssu_id_key])
-        x1, y1, x2, y2 = scale_box_xywh(g, scale)
-        x1, y1, x2, y2 = clamp_box(x1, y1, x2, y2, w, h)
+        x1, y1, x2, y2 = scale_box_xywh(g, scale_x, scale_y)
+        x1, y1, x2, y2 = clamp_box(x1, y1, x2, y2, canvas_w, canvas_h)
         if x2 <= x1 or y2 <= y1:
             continue
         roi = gt_map[y1:y2, x1:x2]
@@ -128,31 +151,45 @@ def boxes_to_gt_ssu_map(
 
 def boxes_to_pred_masks(
     boxes: Sequence[BBox],
-    w: int,
-    h: int,
-    *,
-    scale: float = 1.0,
+    src_w: int,
+    src_h: int,
+    canvas_w: int,
+    canvas_h: int,
 ) -> List[np.ndarray]:
     """Rasterize a list of prediction bounding boxes into binary masks.
 
-    Each box is scaled, clamped to the canvas, and painted as ``True`` on its
-    own ``(h, w)`` boolean canvas. Boxes that collapse to zero area after
+    Each box is scaled from the source coordinate space ``(src_w, src_h)``
+    onto the output canvas ``(canvas_w, canvas_h)``, clamped, and painted as
+    ``True`` on its own boolean canvas.  Boxes that collapse to zero area after
     clamping produce an all-``False`` mask.
+
+    The source and canvas dimensions may differ — for example when predictions
+    were made at a higher resolution than the GT annotations, or when a fixed
+    canvas size is shared across a dataset.  Pass the same
+    ``(canvas_w, canvas_h)`` used for :func:`boxes_to_gt_ssu_map` so that both
+    maps are on the same coordinate grid.
+
+    To compute a per-image canvas capped at a maximum dimension, use
+    :func:`compute_canvas` to obtain ``(canvas_w, canvas_h)`` first.
 
     Args:
         boxes: Sequence of prediction bounding boxes in XYWH format.
-        w: Canvas width in pixels (after any scaling has been applied).
-        h: Canvas height in pixels (after any scaling has been applied).
-        scale: Scale factor applied to each box before rasterization.
+        src_w: Width of the coordinate space the boxes are defined in.
+        src_h: Height of the coordinate space the boxes are defined in.
+        canvas_w: Canvas width in pixels.
+        canvas_h: Canvas height in pixels.
 
     Returns:
-        List of 2D boolean numpy arrays of shape ``(h, w)``, one per input box.
+        List of 2D boolean numpy arrays of shape ``(canvas_h, canvas_w)``,
+        one per input box.
     """
+    scale_x = canvas_w / src_w
+    scale_y = canvas_h / src_h
     masks: List[np.ndarray] = []
     for p in boxes:
-        m = np.zeros((h, w), dtype=bool)
-        x1, y1, x2, y2 = scale_box_xywh(p, scale)
-        x1, y1, x2, y2 = clamp_box(x1, y1, x2, y2, w, h)
+        m = np.zeros((canvas_h, canvas_w), dtype=bool)
+        x1, y1, x2, y2 = scale_box_xywh(p, scale_x, scale_y)
+        x1, y1, x2, y2 = clamp_box(x1, y1, x2, y2, canvas_w, canvas_h)
         if x2 > x1 and y2 > y1:
             m[y1:y2, x1:x2] = True
         masks.append(m)

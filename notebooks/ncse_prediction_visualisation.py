@@ -87,10 +87,10 @@ def _(
         image_array = np.array(Image.open(image_dir / filename).convert("RGB"))
         actual_h, actual_w = image_array.shape[:2]
         csv_w = int(img_df.image_width.iloc[0])
-        scale = actual_w / csv_w
+        csv_h = round(actual_h * csv_w / actual_w)
 
-        gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, actual_w, actual_h, scale=scale)
-        pred_masks = boxes_to_pred_masks(pred_boxes, actual_w, actual_h, scale=scale)
+        gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, csv_w, csv_h, actual_w, actual_h)
+        pred_masks = boxes_to_pred_masks(pred_boxes, csv_w, csv_h, actual_w, actual_h)
 
         masks = compute_cote_masks(gt_ssu_map, pred_masks)
 
@@ -190,10 +190,10 @@ def _(
             image_array = np.array(Image.open(image_dir / filename).convert("RGB"))
             actual_h, actual_w = image_array.shape[:2]
             csv_w = int(img_df.image_width.iloc[0])
-            scale = actual_w / csv_w
+            csv_h = round(actual_h * csv_w / actual_w)
 
-            gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, actual_w, actual_h, scale=scale)
-            pred_masks = boxes_to_pred_masks(pred_boxes, actual_w, actual_h, scale=scale)
+            gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, csv_w, csv_h, actual_w, actual_h)
+            pred_masks = boxes_to_pred_masks(pred_boxes, csv_w, csv_h, actual_w, actual_h)
 
             masks = compute_cote_masks(gt_ssu_map, pred_masks)
 
@@ -292,10 +292,10 @@ def _(
         _image_array = np.array(Image.open(image_dir / _filename).convert("RGB"))
         _actual_h, _actual_w = _image_array.shape[:2]
         _csv_w = int(_img_df.image_width.iloc[0])
-        _scale = _actual_w / _csv_w
+        _csv_h = round(_actual_h * _csv_w / _actual_w)
 
-        _gt_ssu_map = boxes_to_gt_ssu_map(_gt_boxes, _actual_w, _actual_h, scale=_scale)
-        _pred_masks = boxes_to_pred_masks(_pred_boxes, _actual_w, _actual_h, scale=_scale)
+        _gt_ssu_map = boxes_to_gt_ssu_map(_gt_boxes, _csv_w, _csv_h, _actual_w, _actual_h)
+        _pred_masks = boxes_to_pred_masks(_pred_boxes, _csv_w, _csv_h, _actual_w, _actual_h)
 
         _cot, _cov, _ovl, _tres, _exc = cote_score(_gt_ssu_map, _pred_masks)
         _miou = mean_iou(_pred_boxes, _gt_boxes)

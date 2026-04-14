@@ -20,7 +20,7 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 from cotescore.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset, SpiritualistDataset
-from cotescore.adapters import eval_shape, boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.adapters import compute_canvas, boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cotescore.layout import (
     coverage,
     overlap,
@@ -59,9 +59,9 @@ def _compute_image_metrics(
         logger.warning(f"Failed to get image dimensions for {sample['filename']}: {e}")
         image_width, image_height = 1000, 1000
 
-    w_eval, h_eval, scale = eval_shape(image_width, image_height, EVAL_MAX_DIM)
-    gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, w_eval, h_eval, scale=scale)
-    pred_masks = boxes_to_pred_masks(predictions, w_eval, h_eval, scale=scale)
+    canvas_w, canvas_h = compute_canvas(image_width, image_height, EVAL_MAX_DIM)
+    gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, image_width, image_height, canvas_w, canvas_h)
+    pred_masks = boxes_to_pred_masks(predictions, image_width, image_height, canvas_w, canvas_h)
 
     image_metrics = {}
     for metric_name in metrics:
