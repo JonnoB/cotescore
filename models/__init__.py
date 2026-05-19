@@ -2,7 +2,7 @@
 Model evaluation utilities for document layout analysis models.
 """
 
-__all__ = ["DocLayoutYOLO", "DoclingLayoutHeron", "PPDocLayout", "LayoutModel"]
+__all__ = ["DocLayoutYOLO", "DoclingLayoutHeron", "Mask2Former", "PPDocLayout", "LayoutModel"]
 
 
 def __getattr__(name):
@@ -14,6 +14,10 @@ def __getattr__(name):
         from .docling_heron import DoclingLayoutHeron
 
         return DoclingLayoutHeron
+    if name == "Mask2Former":
+        from .mask2former import Mask2Former
+
+        return Mask2Former
     if name == "PPDocLayout":
         from .pp_doclayout import PPDocLayout
 

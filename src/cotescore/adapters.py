@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from cotescore.types import Label, RegionPixels
+from cotescore.types import Label, MaskInstance, RegionPixels
 
 
 BBox = Dict[str, Any]
@@ -243,6 +243,86 @@ def boxes_to_region_pixels(
         xs=np.array(all_xs, dtype=np.int64),
         ys=np.array(all_ys, dtype=np.int64),
     )
+
+
+def hf_instance_seg_to_masks(
+    result: Dict[str, Any],
+    id_to_class: Optional[Dict[int, Label]] = None,
+    score_threshold: float = 0.5,
+) -> List[MaskInstance]:
+    """Convert a HuggingFace ``post_process_instance_segmentation`` result to
+    a list of :class:`~cotescore.types.MaskInstance` objects.
+
+    Works with any HuggingFace model that uses the standard instance
+    segmentation post-processing pipeline (Mask2Former, MaskFormer, etc.).
+
+    Args:
+        result: A single-image result dict with keys ``"masks"``
+            (bool Tensor of shape ``(N, H, W)``), ``"labels"`` (int Tensor of
+            shape ``(N,)``), and ``"scores"`` (float Tensor of shape ``(N,)``).
+            Typically one element of the list returned by
+            ``processor.post_process_instance_segmentation(..., target_sizes=...)``.
+        id_to_class: Optional mapping from integer label id to a class label
+            (str or int).  When ``None``, the raw integer label id is used.
+        score_threshold: Predictions with a confidence score below this value
+            are discarded (default ``0.5``).
+
+    Returns:
+        List of :class:`~cotescore.types.MaskInstance` objects, one per
+        prediction that passes the score threshold.  Masks are 2D boolean
+        numpy arrays at the resolution set by ``target_sizes`` during
+        post-processing.
+    """
+    masks = result["masks"].bool().cpu().numpy()
+    labels = result["labels"].cpu().numpy()
+    scores = result["scores"].cpu().numpy()
+    out: List[MaskInstance] = []
+    for i, (mask, label, score) in enumerate(zip(masks, labels, scores)):
+        if score < score_threshold:
+            continue
+        cls: Label = id_to_class[int(label)] if id_to_class is not None else int(label)
+        out.append(MaskInstance(mask=mask, label=cls, score=float(score), pred_id=i))
+    return out
+
+
+def hf_panoptic_seg_to_masks(
+    result: Dict[str, Any],
+    id_to_class: Optional[Dict[int, Label]] = None,
+    things_only: bool = True,
+) -> List[MaskInstance]:
+    """Convert a HuggingFace ``post_process_panoptic_segmentation`` result to
+    a list of :class:`~cotescore.types.MaskInstance` objects.
+
+    Works with any HuggingFace model that uses the standard panoptic
+    segmentation post-processing pipeline (Mask2Former, MaskFormer, etc.).
+
+    Args:
+        result: A single-image result dict with keys ``"segmentation"``
+            (int Tensor of shape ``(H, W)`` where each pixel holds a segment
+            id) and ``"segments_info"`` (list of dicts with keys ``"id"``,
+            ``"label_id"``, ``"was_fused"``, and optionally ``"score"``).
+            Typically one element of the list returned by
+            ``processor.post_process_panoptic_segmentation(..., target_sizes=...)``.
+        id_to_class: Optional mapping from integer label id to a class label
+            (str or int).  When ``None``, the raw integer label id is used.
+        things_only: When ``True`` (default), segments with ``was_fused=True``
+            ("stuff" categories) are skipped, keeping only countable instance
+            ("things") segments.
+
+    Returns:
+        List of :class:`~cotescore.types.MaskInstance` objects, one per
+        retained segment.  Masks are 2D boolean numpy arrays at the resolution
+        set by ``target_sizes`` during post-processing.
+    """
+    seg_map = result["segmentation"].cpu().numpy()
+    out: List[MaskInstance] = []
+    for i, seg in enumerate(result["segments_info"]):
+        if things_only and seg.get("was_fused", False):
+            continue
+        mask = seg_map == seg["id"]
+        cls: Label = id_to_class[seg["label_id"]] if id_to_class is not None else seg["label_id"]
+        out.append(MaskInstance(mask=mask, label=cls, score=seg.get("score"), pred_id=i))
+    return out
 
 
 def build_ssu_to_class(
