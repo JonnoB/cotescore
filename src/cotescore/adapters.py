@@ -257,11 +257,13 @@ def hf_instance_seg_to_masks(
     segmentation post-processing pipeline (Mask2Former, MaskFormer, etc.).
 
     Args:
-        result: A single-image result dict with keys ``"masks"``
-            (bool Tensor of shape ``(N, H, W)``), ``"labels"`` (int Tensor of
-            shape ``(N,)``), and ``"scores"`` (float Tensor of shape ``(N,)``).
-            Typically one element of the list returned by
+        result: A single-image result dict from
             ``processor.post_process_instance_segmentation(..., target_sizes=...)``.
+            Supports either:
+            1) ``{"masks", "labels", "scores"}`` where masks are ``(N, H, W)``, or
+            2) ``{"segmentation", "segments_info"}`` where the segmentation map is
+               ``(H, W)`` and each item in ``segments_info`` has ``id`` and ``label_id``
+               (and optionally ``score``).
         id_to_class: Optional mapping from integer label id to a class label
             (str or int).  When ``None``, the raw integer label id is used.
         score_threshold: Predictions with a confidence score below this value
@@ -273,16 +275,42 @@ def hf_instance_seg_to_masks(
         numpy arrays at the resolution set by ``target_sizes`` during
         post-processing.
     """
-    masks = result["masks"].bool().cpu().numpy()
-    labels = result["labels"].cpu().numpy()
-    scores = result["scores"].cpu().numpy()
+    def _to_numpy(x: Any) -> np.ndarray:
+        if hasattr(x, "detach"):
+            x = x.detach()
+        if hasattr(x, "cpu"):
+            x = x.cpu()
+        return np.asarray(x)
+
     out: List[MaskInstance] = []
-    for i, (mask, label, score) in enumerate(zip(masks, labels, scores)):
-        if score < score_threshold:
-            continue
-        cls: Label = id_to_class[int(label)] if id_to_class is not None else int(label)
-        out.append(MaskInstance(mask=mask, label=cls, score=float(score), pred_id=i))
-    return out
+
+    if "masks" in result and "labels" in result and "scores" in result:
+        masks = _to_numpy(result["masks"]).astype(bool)
+        labels = _to_numpy(result["labels"])
+        scores = _to_numpy(result["scores"])
+        for i, (mask, label, score) in enumerate(zip(masks, labels, scores)):
+            if float(score) < score_threshold:
+                continue
+            cls: Label = id_to_class[int(label)] if id_to_class is not None else int(label)
+            out.append(MaskInstance(mask=mask, label=cls, score=float(score), pred_id=i))
+        return out
+
+    if "segmentation" in result and "segments_info" in result:
+        seg_map = _to_numpy(result["segmentation"])
+        for i, seg in enumerate(result["segments_info"]):
+            score = float(seg.get("score", 1.0))
+            if score < score_threshold:
+                continue
+            mask = seg_map == seg["id"]
+            label_id = int(seg["label_id"])
+            cls: Label = id_to_class[label_id] if id_to_class is not None else label_id
+            out.append(MaskInstance(mask=mask, label=cls, score=score, pred_id=i))
+        return out
+
+    raise KeyError(
+        "Unsupported HF instance segmentation result format. "
+        f"Expected keys ('masks','labels','scores') or ('segmentation','segments_info'), got: {list(result.keys())}"
+    )
 
 
 def hf_panoptic_seg_to_masks(
