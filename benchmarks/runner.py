@@ -21,6 +21,7 @@ except ImportError:
 
 from cotescore.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset, SpiritualistDataset
 from cotescore.adapters import compute_canvas, boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.types import MaskInstance
 from cotescore.layout import (
     coverage,
     overlap,
@@ -37,6 +38,20 @@ logger = logging.getLogger(__name__)
 
 
 EVAL_MAX_DIM = 2000
+
+
+def _mask_instances_to_canvas(
+    predictions: List[MaskInstance],
+    canvas_w: int,
+    canvas_h: int,
+) -> List[np.ndarray]:
+    """Resize MaskInstance masks (image-resolution) to canvas resolution."""
+    masks = []
+    for inst in predictions:
+        pil_mask = Image.fromarray(inst.mask.astype(np.uint8) * 255)
+        pil_mask = pil_mask.resize((canvas_w, canvas_h), Image.NEAREST)
+        masks.append(np.array(pil_mask) > 0)
+    return masks
 
 
 def _compute_image_metrics(
@@ -61,12 +76,19 @@ def _compute_image_metrics(
 
     canvas_w, canvas_h = compute_canvas(image_width, image_height, EVAL_MAX_DIM)
     gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, image_width, image_height, canvas_w, canvas_h)
-    pred_masks = boxes_to_pred_masks(predictions, image_width, image_height, canvas_w, canvas_h)
+
+    is_mask_preds = bool(predictions) and isinstance(predictions[0], MaskInstance)
+    if is_mask_preds:
+        pred_masks = _mask_instances_to_canvas(predictions, canvas_w, canvas_h)
+    else:
+        pred_masks = boxes_to_pred_masks(predictions, image_width, image_height, canvas_w, canvas_h)
 
     image_metrics = {}
     for metric_name in metrics:
         if metric_name == "map":
             continue
+        elif metric_name in ("mean_iou", "f1_50") and is_mask_preds:
+            score = float("nan")  # not defined for mask predictions
         elif metric_name == "mean_iou":
             score = mean_iou(predictions, ground_truth)
         elif metric_name == "f1_50":

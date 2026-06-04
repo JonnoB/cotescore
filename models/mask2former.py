@@ -119,7 +119,7 @@ class Mask2Former(LayoutModel):
             images = [Image.open(p).convert("RGB") for p in batch_paths]
             target_sizes = [(img.height, img.width) for img in images]
 
-            inputs = self.processor(images=images, return_tensors="pt", padding=True)
+            inputs = self.processor(images=images, return_tensors="pt")
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
             with torch.no_grad():
