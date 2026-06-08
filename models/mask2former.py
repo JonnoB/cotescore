@@ -85,7 +85,9 @@ class Mask2Former(LayoutModel):
 
         if self.task == "instance":
             results = self.processor.post_process_instance_segmentation(
-                outputs, target_sizes=[(h, w)]
+                outputs,
+                threshold=self.score_threshold,
+                target_sizes=[(h, w)],
             )
             return hf_instance_seg_to_masks(results[0], score_threshold=self.score_threshold)
         else:
@@ -127,7 +129,9 @@ class Mask2Former(LayoutModel):
 
             if self.task == "instance":
                 results = self.processor.post_process_instance_segmentation(
-                    outputs, target_sizes=target_sizes
+                    outputs,
+                    threshold=self.score_threshold,
+                    target_sizes=target_sizes,
                 )
                 for result in results:
                     all_predictions.append(
