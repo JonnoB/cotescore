@@ -792,6 +792,123 @@ class SpiritualistDataset:
         }
 
 
+class HierTextDataset:
+    """Loader for the HierText dataset (word/line/paragraph hierarchy).
+
+    Each text *line* becomes one bounding-box region; lines belonging to the
+    same paragraph share an ``ssu_id``. Polygons are reduced to axis-aligned
+    bounding boxes. All lines are kept regardless of the ``legible`` flag.
+
+    Reference: https://github.com/google-research-datasets/hiertext
+    """
+
+    def __init__(
+        self,
+        images_path: Path,
+        groundtruth_path: Path,
+        image_ext: str = "jpg",
+    ):
+        """
+        Args:
+            images_path: Directory containing ``<image_id>.<image_ext>`` files.
+            groundtruth_path: Path to the HierText GT JSON file (e.g.
+                ``validation.jsonl`` — a single JSON object despite the name).
+            image_ext: Image file extension to glob for (default: 'jpg').
+        """
+        self.images_path = Path(images_path)
+        self.groundtruth_path = Path(groundtruth_path)
+        self.image_ext = image_ext
+        self.images = []
+        self.annotations_by_image = {}
+        self._loaded = False
+
+    def load(self):
+        """Load the dataset from disk."""
+        if self._loaded:
+            return
+
+        if not self.images_path.exists():
+            raise FileNotFoundError(f"Images directory not found: {self.images_path}")
+        if not self.groundtruth_path.exists():
+            raise FileNotFoundError(f"Ground truth file not found: {self.groundtruth_path}")
+
+        with open(self.groundtruth_path) as f:
+            gt = json.load(f)
+
+        entries_by_id = {entry["image_id"]: entry for entry in gt.get("annotations", [])}
+
+        available = {p.stem: p for p in self.images_path.glob(f"*.{self.image_ext}")}
+
+        for image_id, entry in entries_by_id.items():
+            img_path = available.get(image_id)
+            if img_path is None:
+                logger.warning(f"No image found for GT entry {image_id}, skipping")
+                continue
+
+            annotations = self._build_annotations(entry, image_id)
+
+            self.images.append(str(img_path))
+            self.annotations_by_image[str(img_path)] = annotations
+
+        self._loaded = True
+
+    @staticmethod
+    def _build_annotations(entry: dict, image_id: str) -> List[Dict[str, Any]]:
+        """Map a GT entry's paragraphs/lines to line-level region annotations."""
+        annotations: List[Dict[str, Any]] = []
+        for para_idx, paragraph in enumerate(entry.get("paragraphs", []), start=1):
+            for line in paragraph.get("lines", []):
+                vertices = line.get("vertices", [])
+                if len(vertices) < 3:
+                    continue
+                xs = [pt[0] for pt in vertices]
+                ys = [pt[1] for pt in vertices]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                annotations.append(
+                    {
+                        "x": float(x1),
+                        "y": float(y1),
+                        "width": float(x2 - x1),
+                        "height": float(y2 - y1),
+                        "class": "text",
+                        "ssu_id": para_idx,
+                        "ssu_class": "object",
+                        "confidence": 1.0,
+                        "page_id": image_id,
+                    }
+                )
+        return annotations
+
+    def __len__(self) -> int:
+        """Return the number of images in the dataset."""
+        if not self._loaded:
+            self.load()
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get a sample as ``{image_path, annotations, filename}``."""
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
+        image_path = self.images[idx]
+        return {
+            "image_path": image_path,
+            "annotations": self.annotations_by_image[image_path],
+            "filename": Path(image_path).name,
+        }
+
+    def get_annotations(self, idx: int) -> List[Dict[str, Any]]:
+        """Get ground-truth annotations for a sample."""
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
+        return self.annotations_by_image[self.images[idx]]
+
+
 def extract_ssu_boxes(ground_truth: dict) -> list:
     """Extract SSU-level bounding boxes from a ground-truth dict.
 
