@@ -7,7 +7,6 @@ Supports multiple model types: DocLayout-YOLO, Docling Heron, etc.
 import argparse
 import sys
 import json
-import logging
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -20,7 +19,7 @@ from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
 from cotescore.dataset import HNLA2013Dataset
 from cotescore.adapters import compute_canvas, boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cotescore.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
+from cotescore.layout import mean_iou, coverage, overlap, trespass, excess, cote_score
 
 EVAL_MAX_DIM = 2000
 
