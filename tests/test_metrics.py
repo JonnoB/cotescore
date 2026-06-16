@@ -35,7 +35,8 @@ def _boxes_to_gt_ssu_map(gt_boxes, image_width: int, image_height: int) -> np.nd
 
 
 def _boxes_to_pred_masks(pred_boxes, image_width: int, image_height: int):
-    return boxes_to_pred_masks(pred_boxes, image_width, image_height, image_width, image_height)
+    instances = boxes_to_pred_masks(pred_boxes, image_width, image_height, image_width, image_height)
+    return [inst.mask for inst in instances]
 
 
 class TestCoverage:

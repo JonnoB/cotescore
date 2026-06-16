@@ -156,8 +156,8 @@ def boxes_to_pred_masks(
     src_h: int,
     canvas_w: int,
     canvas_h: int,
-) -> List[np.ndarray]:
-    """Rasterize a list of prediction bounding boxes into binary masks.
+) -> List[MaskInstance]:
+    """Rasterize a list of prediction bounding boxes into :class:`MaskInstance` objects.
 
     Each box is scaled from the source coordinate space ``(src_w, src_h)``
     onto the output canvas ``(canvas_w, canvas_h)``, clamped, and painted as
@@ -174,27 +174,36 @@ def boxes_to_pred_masks(
     :func:`compute_canvas` to obtain ``(canvas_w, canvas_h)`` first.
 
     Args:
-        boxes: Sequence of prediction bounding boxes in XYWH format.
+        boxes: Sequence of prediction bounding boxes in XYWH format.  Each box
+            may optionally contain a ``"class"``, ``"label"``, or ``"class_name"``
+            key; if absent the label defaults to ``"unknown"``.
         src_w: Width of the coordinate space the boxes are defined in.
         src_h: Height of the coordinate space the boxes are defined in.
         canvas_w: Canvas width in pixels.
         canvas_h: Canvas height in pixels.
 
     Returns:
-        List of 2D boolean numpy arrays of shape ``(canvas_h, canvas_w)``,
-        one per input box.
+        List of :class:`~cotescore.types.MaskInstance` objects, one per input
+        box, with ``mask`` set to the 2D boolean array and ``label`` extracted
+        from the box dict.
     """
     scale_x = canvas_w / src_w
     scale_y = canvas_h / src_h
-    masks: List[np.ndarray] = []
-    for p in boxes:
+    instances: List[MaskInstance] = []
+    for idx, p in enumerate(boxes):
         m = np.zeros((canvas_h, canvas_w), dtype=bool)
         x1, y1, x2, y2 = scale_box_xywh(p, scale_x, scale_y)
         x1, y1, x2, y2 = clamp_box(x1, y1, x2, y2, canvas_w, canvas_h)
         if x2 > x1 and y2 > y1:
             m[y1:y2, x1:x2] = True
-        masks.append(m)
-    return masks
+        # Extract label from common box-dict keys
+        label: Label = "unknown"
+        for key in ("class", "label", "class_name", "category"):
+            if key in p:
+                label = p[key]
+                break
+        instances.append(MaskInstance(mask=m, label=label, pred_id=idx))
+    return instances
 
 
 def boxes_to_region_pixels(
