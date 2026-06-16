@@ -22,7 +22,8 @@ from .ocr import (
 )
 from .class_metrics import cote_class, coverage_matrix, overlap_matrix, trespass_matrix
 from .types import ClassCOTeResult, TokenPositions, RegionChars, RegionPixels, CDDDecomposition, SpACERDecomposition
-from .adapters import boxes_to_region_pixels
+from .adapters import boxes_to_region_pixels, polygons_to_panoptic_mask
+from .panoptic_quality import panoptic_quality
 from .visualisation import compute_cote_masks, visualize_cote_states
 from .dataset import load_limerick_example, extract_ssu_boxes
 from .alto_ssu_tagger import ALTOSSUTagger, assign_alto_ssu
@@ -54,6 +55,8 @@ __all__ = [
     "CDDDecomposition",
     "SpACERDecomposition",
     "boxes_to_region_pixels",
+    "polygons_to_panoptic_mask",
+    "panoptic_quality",
     "compute_cote_masks",
     "visualize_cote_states",
     "load_limerick_example",

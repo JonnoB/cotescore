@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+from PIL import Image, ImageDraw
 
 from cotescore.types import Label, MaskInstance, RegionPixels
 
@@ -243,6 +244,56 @@ def boxes_to_region_pixels(
         xs=np.array(all_xs, dtype=np.int64),
         ys=np.array(all_ys, dtype=np.int64),
     )
+
+
+def polygons_to_panoptic_mask(
+    polygons: Sequence[Sequence[Sequence[float]]],
+    labels: Sequence[int],
+    image_shape: Tuple[int, int],
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
+) -> Tuple[np.ndarray, List[Dict[str, int]]]:
+    """Rasterize non-overlapping polygons into a panoptic label map.
+
+    Each polygon is painted with a unique segment id (starting at 1).
+    Background is 0.  A ``segments_info`` list maps each segment id to
+    its class ``label_id``.
+
+    Args:
+        polygons: Sequence of polygons, each a sequence of ``[x, y]`` vertices.
+        labels: Parallel sequence of integer class labels, one per polygon.
+        image_shape: ``(height, width)`` of the output map.
+        scale_x: Optional horizontal scale factor applied to vertices before
+            rasterization (default 1.0).
+        scale_y: Optional vertical scale factor (default 1.0).
+
+    Returns:
+        A tuple ``(segmentation_map, segments_info)`` where
+        ``segmentation_map`` is an ``int32`` array of shape ``(H, W)`` and
+        ``segments_info`` is a list of dicts with ``"id"`` and ``"label_id"``.
+    """
+    height, width = image_shape
+    seg_map = np.zeros((height, width), dtype=np.int32)
+    segments_info: List[Dict[str, int]] = []
+
+    for seg_idx, (polygon, label) in enumerate(zip(polygons, labels), start=1):
+        flat = []
+        for pt in polygon:
+            flat.extend([pt[0] * scale_x, pt[1] * scale_y])
+        if len(flat) < 6:
+            continue
+
+        img = Image.new("L", (width, height), 0)
+        ImageDraw.Draw(img).polygon(flat, fill=seg_idx)
+        mask_np = np.array(img, dtype=np.int32)
+
+        # Only overwrite background pixels (first-write-wins for overlaps)
+        roi = seg_map == 0
+        seg_map[roi] = mask_np[roi]
+
+        segments_info.append({"id": seg_idx, "label_id": int(label)})
+
+    return seg_map, segments_info
 
 
 def hf_instance_seg_to_masks(
