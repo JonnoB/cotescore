@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Visualize document layout model predictions on HNLA2013 images.
+Visualize document layout model predictions on HierText images.
 Supports multiple model types: DocLayout-YOLO, Docling Heron, etc.
+
+Ground truth is line-level (each text line is one region) grouped by paragraph
+(ssu_id), matching HierTextDataset. Images are expected as <image_id>.jpg in
+--dataset; --groundtruth points at the HierText GT JSON file (e.g.
+validation.jsonl).
 """
 
 import argparse
@@ -17,7 +22,7 @@ sys.path.insert(0, str(project_root))
 
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
-from cotescore.dataset import HNLA2013Dataset
+from cotescore.dataset import HierTextDataset
 from cotescore.adapters import compute_canvas, boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cotescore.layout import mean_iou, coverage, overlap, trespass, excess, cote_score
 
@@ -193,22 +198,22 @@ def create_overlay_image(image_path, ground_truth, predictions, output_path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Visualize predictions from document layout models on HNLA2013"
+        description="Visualize predictions from document layout models on HierText"
     )
     parser.add_argument(
         "--dataset",
         type=str,
         required=True,
-        help="Path to flat directory containing HNLA2013 PNG images",
+        help="Path to directory containing HierText <image_id>.jpg images",
     )
     parser.add_argument(
         "--groundtruth",
         type=str,
         required=True,
-        help="Path to groundtruth_with_ssu/ directory containing PAGE XML files",
+        help="Path to the HierText GT JSON file (e.g. validation.jsonl)",
     )
     parser.add_argument(
-        "--output", type=str, default="visualizations/hnla2013", help="Output directory"
+        "--output", type=str, default="visualizations/hiertext", help="Output directory"
     )
     parser.add_argument(
         "--model-type",
@@ -231,8 +236,8 @@ def main():
     parser.add_argument(
         "--image-ext",
         type=str,
-        default="png",
-        help="Image file extension (default: png)",
+        default="jpg",
+        help="Image file extension (default: jpg)",
     )
     parser.add_argument("--overlay", action="store_true", help="Create overlay image")
 
@@ -248,7 +253,7 @@ def main():
 
     print(f"Loading dataset: {args.dataset}")
     print(f"Ground truth: {args.groundtruth}")
-    dataset = HNLA2013Dataset(
+    dataset = HierTextDataset(
         images_path=Path(args.dataset),
         groundtruth_path=Path(args.groundtruth),
         image_ext=args.image_ext,

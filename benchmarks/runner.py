@@ -19,7 +19,13 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
-from cotescore.dataset import NCSEDataset, HNLA2013Dataset, DocLayNetDataset, SpiritualistDataset
+from cotescore.dataset import (
+    NCSEDataset,
+    HNLA2013Dataset,
+    DocLayNetDataset,
+    SpiritualistDataset,
+    HierTextDataset,
+)
 from cotescore.adapters import compute_canvas, boxes_to_gt_ssu_map, boxes_to_pred_masks
 from cotescore.types import MaskInstance
 from cotescore.layout import (
@@ -260,6 +266,14 @@ class BenchmarkRunner:
                 if self.groundtruth_path is None:
                     raise ValueError("groundtruth_path must be provided for spiritualist dataset")
                 self._dataset = SpiritualistDataset(
+                    images_path=self.dataset_path,
+                    groundtruth_path=self.groundtruth_path,
+                    image_ext=self.image_ext,
+                )
+            elif self.dataset_name == "hiertext":
+                if self.groundtruth_path is None:
+                    raise ValueError("groundtruth_path must be provided for hiertext dataset")
+                self._dataset = HierTextDataset(
                     images_path=self.dataset_path,
                     groundtruth_path=self.groundtruth_path,
                     image_ext=self.image_ext,

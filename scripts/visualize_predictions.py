@@ -7,11 +7,8 @@ Supports multiple model types: DocLayout-YOLO, Docling Heron, etc.
 import argparse
 import sys
 import json
-import logging
 from pathlib import Path
 
-import cv2
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 # Add project root to path
@@ -21,7 +18,10 @@ sys.path.insert(0, str(project_root))
 from models.doclayout_yolo import DocLayoutYOLO
 from models.docling_heron import DoclingLayoutHeron
 from cotescore.dataset import NCSEDataset
-from cotescore.metrics import mean_iou, coverage, overlap, trespass, excess, cote_score
+from cotescore.adapters import compute_canvas, boxes_to_gt_ssu_map, boxes_to_pred_masks
+from cotescore.layout import mean_iou, coverage, overlap, trespass, excess, cote_score
+
+EVAL_MAX_DIM = 2000
 
 COLORS = {
     "ground_truth": (0, 255, 0),
@@ -277,24 +277,26 @@ def main():
         print(f"Processing {filename}...")
         predictions = model.predict(image_path)
 
-        # Get image dimensions for excess and cot_score
+        # Get image dimensions for excess and cote_score
         with Image.open(image_path) as img:
             image_width, image_height = img.size
 
+        canvas_w, canvas_h = compute_canvas(image_width, image_height, EVAL_MAX_DIM)
+        gt_ssu_map = boxes_to_gt_ssu_map(ground_truth, image_width, image_height, canvas_w, canvas_h)
+        pred_masks = boxes_to_pred_masks(predictions, image_width, image_height, canvas_w, canvas_h)
+
         metrics = {
             "mean_iou": mean_iou(predictions, ground_truth),
-            "coverage": coverage(predictions, ground_truth, image_width, image_height),
-            "overlap": overlap(predictions, ground_truth, image_width, image_height),
-            "trespass": trespass(predictions, ground_truth, image_width, image_height),
-            "excess": excess(predictions, ground_truth, image_width, image_height),
-            "cot_score": cote_score(predictions, ground_truth, image_width, image_height)[
-                0
-            ],  # Unpack tuple
+            "coverage": coverage(gt_ssu_map, pred_masks),
+            "overlap": overlap(gt_ssu_map, pred_masks),
+            "trespass": trespass(gt_ssu_map, pred_masks),
+            "excess": excess(gt_ssu_map, pred_masks),
+            "cote_score": cote_score(gt_ssu_map, pred_masks)[0],
         }
 
         print(f"  GT: {len(ground_truth)}, Preds: {len(predictions)}")
         print(
-            f"  Metrics: COT={metrics['cot_score']:+.3f}, Cov={metrics['coverage']:.3f}, "
+            f"  Metrics: COT={metrics['cote_score']:+.3f}, Cov={metrics['coverage']:.3f}, "
             f"Ovlp={metrics['overlap']:.3f}, Tres={metrics['trespass']:.3f}, "
             f"Excess={metrics['excess']:.3f}, IoU={metrics['mean_iou']:.3f}"
         )
