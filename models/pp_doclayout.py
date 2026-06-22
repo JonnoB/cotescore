@@ -25,6 +25,7 @@ class PPDocLayout(LayoutModel):
         model_name: str = DEFAULT_MODEL,
         conf_threshold: float = 0.2,
         device: str = "cpu",
+        enable_mkldnn: bool = False,
     ):
         """
         Initialize the PP-DocLayout-L model.
@@ -35,11 +36,16 @@ class PPDocLayout(LayoutModel):
             conf_threshold: Confidence threshold for filtering predictions (default: 0.2).
             device: Inference device – 'cpu' or 'gpu' (default: 'cpu').
                     Note: PaddleOCR uses 'gpu' rather than 'cuda'.
+            enable_mkldnn: Enable oneDNN (MKLDNN) CPU acceleration (default: False).
+                    Kept off because PP-DocLayout-L crashes under Paddle 3.0's PIR
+                    executor with "ConvertPirAttribute2RuntimeAttribute not support
+                    [pir::ArrayAttribute<pir::DoubleAttribute>]" in the oneDNN path.
         """
         super().__init__(model_name)
         self.conf_threshold = conf_threshold
         # PaddleOCR accepts 'gpu' not 'cuda:0', so normalise common variants
         self.device = self._normalise_device(device)
+        self.enable_mkldnn = enable_mkldnn
 
     # ------------------------------------------------------------------
     # Helpers
@@ -71,10 +77,18 @@ class PPDocLayout(LayoutModel):
                 "  pip install paddleocr"
             )
 
-        logger.info(f"Loading PP-DocLayout model: {self.model_name} on device: {self.device}")
+        logger.info(
+            f"Loading PP-DocLayout model: {self.model_name} on device: {self.device} "
+            f"(mkldnn={'on' if self.enable_mkldnn else 'off'})"
+        )
         # PaddleOCR 3.x removed `use_gpu`; device is passed as a kwarg that the
-        # underlying PaddleX pipeline forwards (accepts 'cpu', 'gpu', 'gpu:0', etc.)
-        self.model = LayoutDetection(model_name=self.model_name, device=self.device)
+        # underlying PaddleX pipeline forwards (accepts 'cpu', 'gpu', 'gpu:0', etc.).
+        # enable_mkldnn defaults off: oneDNN crashes the PIR executor on this model.
+        self.model = LayoutDetection(
+            model_name=self.model_name,
+            device=self.device,
+            enable_mkldnn=self.enable_mkldnn,
+        )
         logger.info("PP-DocLayout model loaded successfully.")
 
     def predict(self, image_path: Path) -> List[Dict[str, Any]]:
