@@ -23,7 +23,7 @@ from tqdm import tqdm
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from cotescore.dataset import NCSEDataset, SpiritualistDataset
+from cotescore.dataset import HierTextDataset, NCSEDataset, SpiritualistDataset
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -52,14 +52,14 @@ def main():
         "--dataset-name",
         type=str,
         default="ncse",
-        choices=["ncse", "spiritualist"],
+        choices=["ncse", "spiritualist", "hiertext"],
         help="Dataset to export predictions for (default: ncse)",
     )
     parser.add_argument(
         "--groundtruth",
         type=str,
         default=None,
-        help="Path to ground truth directory (required for spiritualist)",
+        help="Path to ground truth directory/file (required for spiritualist and hiertext)",
     )
     parser.add_argument(
         "--image-ext",
@@ -145,6 +145,19 @@ def main():
             logger.error(f"Ground truth path does not exist: {groundtruth_path}")
             sys.exit(1)
         dataset = SpiritualistDataset(
+            images_path=dataset_path,
+            groundtruth_path=groundtruth_path,
+            image_ext=args.image_ext,
+        )
+    elif args.dataset_name == "hiertext":
+        if not args.groundtruth:
+            logger.error("--groundtruth is required for the hiertext dataset")
+            sys.exit(1)
+        groundtruth_path = Path(args.groundtruth)
+        if not groundtruth_path.exists():
+            logger.error(f"Ground truth path does not exist: {groundtruth_path}")
+            sys.exit(1)
+        dataset = HierTextDataset(
             images_path=dataset_path,
             groundtruth_path=groundtruth_path,
             image_ext=args.image_ext,
