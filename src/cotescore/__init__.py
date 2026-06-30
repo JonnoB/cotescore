@@ -20,8 +20,16 @@ from .ocr import (
     cdd_decomp_spatial,
     spacer_decomp_spatial,
 )
-from .class_metrics import cote_class, coverage_matrix, overlap_matrix, trespass_matrix
-from .types import ClassCOTeResult, TokenPositions, RegionChars, RegionPixels, CDDDecomposition, SpACERDecomposition
+from .class_metrics import (
+    cote_class,
+    coverage_matrix,
+    overlap_matrix,
+    trespass_matrix,
+    class_confusion_counts,
+    sum_class_counts,
+    finalize_class_counts,
+)
+from .types import ClassCOTeResult, ClassCOTeCounts, TokenPositions, RegionChars, RegionPixels, CDDDecomposition, SpACERDecomposition
 from .adapters import boxes_to_region_pixels, polygons_to_panoptic_mask
 from .panoptic_quality import panoptic_quality
 from .visualisation import compute_cote_masks, visualize_cote_states
@@ -48,7 +56,11 @@ __all__ = [
     "coverage_matrix",
     "overlap_matrix",
     "trespass_matrix",
+    "class_confusion_counts",
+    "sum_class_counts",
+    "finalize_class_counts",
     "ClassCOTeResult",
+    "ClassCOTeCounts",
     "TokenPositions",
     "RegionChars",
     "RegionPixels",

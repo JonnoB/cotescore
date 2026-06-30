@@ -3,8 +3,16 @@
 import pytest
 import numpy as np
 
-from cotescore.class_metrics import coverage_matrix, overlap_matrix, trespass_matrix, cote_class
-from cotescore.types import MaskInstance, ClassCOTeResult
+from cotescore.class_metrics import (
+    coverage_matrix,
+    overlap_matrix,
+    trespass_matrix,
+    cote_class,
+    class_confusion_counts,
+    sum_class_counts,
+    finalize_class_counts,
+)
+from cotescore.types import MaskInstance, ClassCOTeResult, ClassCOTeCounts
 
 
 TOLERANCE = 1e-9
@@ -351,3 +359,149 @@ class TestCOTeClass:
         result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, preds)
         T_standalone, _ = trespass_matrix(GT_2CLASS, SSU_TO_CLASS_2, preds)
         assert np.allclose(result.trespass_matrix, T_standalone)
+
+
+# ---------------------------------------------------------------------------
+# TestCoveragePrecisionRecallF1
+# ---------------------------------------------------------------------------
+
+
+class TestCoveragePrecisionRecallF1:
+    """coverage_precision[k] = TP_k / A^P_k; coverage_recall[k] = TP_k / A^S_k."""
+
+    def test_precision_matches_coverage_diagonal(self):
+        preds = [_mask(H, W, 0, 7, 0, 10, "A"), _mask(H, W, 3, 10, 0, 10, "B")]
+        result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, preds)
+        a, b = result.classes.index("A"), result.classes.index("B")
+        assert abs(result.coverage_precision[a] - result.coverage_matrix[a, a]) < TOLERANCE
+        assert abs(result.coverage_precision[b] - result.coverage_matrix[b, b]) < TOLERANCE
+
+    def test_recall_uses_gt_area_not_pred_area(self):
+        # A pred covers only half of A's 50px GT area (25px), all correct.
+        # Precision = 25/25 = 1.0 (normalised by pred area); recall = 25/50 = 0.5
+        # (normalised by GT area) — these must differ.
+        preds = [_mask(H, W, 0, 5, 0, 5, "A")]
+        result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, preds)
+        a = result.classes.index("A")
+        assert abs(result.coverage_precision[a] - 1.0) < TOLERANCE
+        assert abs(result.coverage_recall[a] - 0.5) < TOLERANCE
+
+    def test_f1_is_harmonic_mean(self):
+        preds = [_mask(H, W, 0, 5, 0, 5, "A")]
+        result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, preds)
+        a = result.classes.index("A")
+        p, r = result.coverage_precision[a], result.coverage_recall[a]
+        expected = 2 * p * r / (p + r)
+        assert abs(result.coverage_f1[a] - expected) < TOLERANCE
+
+    def test_zero_predictions_gives_zero_precision_and_f1(self):
+        result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, [])
+        assert np.all(result.coverage_precision == 0.0)
+        assert np.all(result.coverage_f1 == 0.0)
+
+
+# ---------------------------------------------------------------------------
+# TestAccumulation
+# ---------------------------------------------------------------------------
+
+
+class TestAccumulation:
+    """class_confusion_counts + sum_class_counts + finalize_class_counts must
+    match calling cote_class once on the union of the accumulated images —
+    this is the multi-page dataset workflow the notebook relies on."""
+
+    CLASSES = ["A", "B"]
+
+    def _two_page_scenario(self):
+        """Two 10x10 pages, each with the canonical A/B split, but with
+        deliberately mismatched and overlapping predictions (including a
+        wrong-class prediction spatially overlapping a same-class one) so
+        the cross-class-overlap edge case in trespass_share is exercised."""
+        gt1 = GT_2CLASS
+        ssu1 = SSU_TO_CLASS_2
+        preds1 = [
+            _mask(H, W, 0, 5, 0, 10, "A"),
+            _mask(H, W, 0, 3, 0, 10, "A"),  # redundant -> overlap
+            _mask(H, W, 0, 5, 0, 5, "B"),  # wrong-class pred on A's GT
+        ]
+
+        gt2 = GT_2CLASS
+        ssu2 = SSU_TO_CLASS_2
+        preds2 = [
+            _mask(H, W, 5, 10, 0, 10, "B"),
+            _mask(H, W, 4, 10, 0, 10, "A"),  # A pred trespassing onto B's GT
+        ]
+        return (gt1, ssu1, preds1), (gt2, ssu2, preds2)
+
+    def _stitched_reference(self, page1, page2):
+        """Stack the two pages vertically into one combined gt_ssu_map (with
+        disjoint SSU ids) and call cote_class once, as the ground truth for
+        what accumulation should produce."""
+        gt1, ssu1, preds1 = page1
+        gt2, ssu2, preds2 = page2
+        combined_gt = np.zeros((2 * H, W), dtype=np.int32)
+        combined_gt[:H, :] = gt1
+        combined_gt[H:, :] = np.where(gt2 > 0, gt2 + 10, 0)
+        combined_ssu = dict(ssu1)
+        combined_ssu.update({sid + 10: cls for sid, cls in ssu2.items()})
+
+        combined_preds = []
+        for p in preds1:
+            m = np.zeros((2 * H, W), dtype=bool)
+            m[:H, :] = p.mask
+            combined_preds.append(MaskInstance(mask=m, label=p.label))
+        for p in preds2:
+            m = np.zeros((2 * H, W), dtype=bool)
+            m[H:, :] = p.mask
+            combined_preds.append(MaskInstance(mask=m, label=p.label))
+
+        return cote_class(combined_gt, combined_ssu, combined_preds)
+
+    def test_class_confusion_counts_returns_correct_type(self):
+        gt, ssu, preds = self._two_page_scenario()[0]
+        counts = class_confusion_counts(gt, ssu, preds, self.CLASSES)
+        assert isinstance(counts, ClassCOTeCounts)
+        assert counts.classes == self.CLASSES
+        K = len(self.CLASSES)
+        assert counts.coverage_numer.shape == (K, K)
+        assert counts.pred_area.shape == (K,)
+
+    def test_accumulation_matches_single_pass_on_stitched_pages(self):
+        page1, page2 = self._two_page_scenario()
+        c1 = class_confusion_counts(*page1, self.CLASSES)
+        c2 = class_confusion_counts(*page2, self.CLASSES)
+        total = sum_class_counts(c1, c2)
+        result_accum = finalize_class_counts(total)
+
+        result_single = self._stitched_reference(page1, page2)
+
+        for field in (
+            "coverage_matrix",
+            "overlap_matrix",
+            "trespass_matrix",
+            "coverage_share",
+            "overlap_share",
+            "trespass_share",
+            "coverage_precision",
+            "coverage_recall",
+            "coverage_f1",
+        ):
+            np.testing.assert_allclose(
+                getattr(result_accum, field), getattr(result_single, field),
+                atol=TOLERANCE, err_msg=field,
+            )
+
+    def test_sum_class_counts_rejects_mismatched_classes(self):
+        gt, ssu, preds = self._two_page_scenario()[0]
+        counts_ab = class_confusion_counts(gt, ssu, preds, ["A", "B"])
+        counts_ba = class_confusion_counts(gt, ssu, preds, ["B", "A"])
+        with pytest.raises(ValueError, match="same fixed"):
+            sum_class_counts(counts_ab, counts_ba)
+
+    def test_predictions_outside_fixed_classes_are_ignored(self):
+        gt, ssu, preds = self._two_page_scenario()[0]
+        preds_with_extra = preds + [_mask(H, W, 0, 5, 0, 5, "C")]
+        counts_without = class_confusion_counts(gt, ssu, preds, self.CLASSES)
+        counts_with = class_confusion_counts(gt, ssu, preds_with_extra, self.CLASSES)
+        np.testing.assert_allclose(counts_without.coverage_numer, counts_with.coverage_numer)
+        np.testing.assert_allclose(counts_without.pred_area, counts_with.pred_area)

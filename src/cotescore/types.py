@@ -182,3 +182,47 @@ class ClassCOTeResult:
     coverage_share: np.ndarray  # K    fraction of total coverage attributable to class k
     overlap_share: np.ndarray  # K    fraction of total overlap attributable to class k
     trespass_share: np.ndarray  # K    fraction of total trespass attributable to class k
+    coverage_precision: np.ndarray  # K  TP_k / A^P_k — same values as diag(coverage_matrix)
+    coverage_recall: np.ndarray  # K  TP_k / A^S_k — GT-area-normalised, not in coverage_matrix
+    coverage_f1: np.ndarray  # K  harmonic mean of coverage_precision and coverage_recall
+
+
+@dataclass(frozen=True)
+class ClassCOTeCounts:
+    """Raw, unnormalised per-class pixel sums for one image (or an accumulation
+    of several images via :func:`~cotescore.class_metrics.sum_class_counts`).
+
+    Unlike :class:`ClassCOTeResult`, these are summable across images: because
+    ground-truth SSUs are class-pure, row-sums of ``coverage_numer`` and
+    ``overlap_numer`` recover the same per-class totals used for
+    ``coverage_share``/``overlap_share`` in
+    :func:`~cotescore.class_metrics.cote_class`. ``trespass_share`` is *not*
+    row-summable from ``trespass_numer``: the trespass matrix excludes a
+    prediction's owner SSU only within its own predicted class (diagonal
+    entries), while the trespass share excludes the owner regardless of
+    class — the two coincide only when a prediction's majority-overlap SSU
+    happens to share the prediction's own class. ``trespass_share_numer`` and
+    the three ``global_*`` scalars are tracked as independent accumulable
+    quantities for exactly this reason, rather than derived from the K×K
+    numerators.
+
+    Pass the accumulated totals to
+    :func:`~cotescore.class_metrics.finalize_class_counts` to get the final
+    matrices, shares, and precision/recall/F1.
+
+    ``classes`` must be identical (same list, same order) across every
+    instance that gets summed together — it is the fixed dataset-wide
+    taxonomy, not derived per-image.
+    """
+
+    classes: List[Label]
+    coverage_numer: np.ndarray  # K×K  sum(M^S_l & M^p,b_k)
+    pred_area: np.ndarray  # K    A^P_k = sum(M^p,b_k)
+    gt_area: np.ndarray  # K    A^S_k = sum(M^S_k)
+    overlap_numer: np.ndarray  # K×K  sum(M^S_l & (M^p_k − M^p,b_k))
+    overlap_area: np.ndarray  # K    A^O_k = sum(M^S & (M^p_k − M^p,b_k))
+    trespass_numer: np.ndarray  # K×K  sum_{j in k} sum(M^S_{l\\i(j)} & M^p_j)
+    trespass_share_numer: np.ndarray  # K  class-agnostic-owner-exclusion trespass pixels
+    global_coverage_area: int  # sum(M^S & M^p,b_global) — union across all classes
+    global_overlap_area: int  # sum(M^S & (M^p_global − M^p,b_global))
+    global_trespass_pixels: int  # total trespass pixels across all classes
