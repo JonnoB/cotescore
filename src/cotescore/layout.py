@@ -14,7 +14,7 @@ from typing import List, Dict, Any, Union, Tuple, Optional, Iterable, Sequence, 
 import numpy as np
 import collections
 
-from cotescore.types import MaskInstance
+from cotescore.types import GTBoxes, MaskInstance
 from cotescore.adapters import calculate_intersection_area as _calculate_intersection_area
 from cotescore._core import (
     _as_pred_masks,
@@ -24,6 +24,7 @@ from cotescore._core import (
     _compose_pred_count,
     _owner_ssu_id,
 )
+from cotescore._core_bbox import bbox_cote_components
 
 
 BBox = Dict[str, Any]
@@ -258,8 +259,8 @@ def excess(
 
 
 def cote_score(
-    gt_ssu_map: np.ndarray,
-    preds: Sequence[Union[np.ndarray, MaskInstance]],
+    gt_ssu_map: Union[np.ndarray, GTBoxes],
+    preds: Union[Sequence[Union[np.ndarray, MaskInstance]], np.ndarray],
     weight_coverage: float = 1.0,
     weight_overlap: float = 1.0,
     weight_trespass: float = 1.0,
@@ -269,11 +270,37 @@ def cote_score(
     Returns the weighted composite COTe score together with the four
     individual component values: Coverage, Overlap, Trespass, and Excess.
 
+    Supports two mutually exclusive representations, dispatched by the type
+    of `gt_ssu_map`:
+
+    - Mask mode (default): `gt_ssu_map` is a 2D integer pixel array and
+      `preds` is a sequence of prediction masks. This rasterizes-then-scores,
+      exactly as before.
+    - Bbox mode: `gt_ssu_map` is a :class:`~cotescore.types.GTBoxes` instance
+      and `preds` is an ``(M, 4)`` array of predicted boxes in
+      ``[x, y, width, height]`` format. This computes all four components
+      analytically via coordinate compression, without ever allocating a
+      pixel raster -- much faster when predictions are boxes rather than
+      masks (the common case for doc-layout models).
+
+    Mixing representations (e.g. `GTBoxes` with a mask sequence, or a pixel
+    array with a box array) is not supported and raises `TypeError` --
+    rasterize the box side first via :func:`~cotescore.adapters.boxes_to_gt_ssu_map`/
+    :func:`~cotescore.adapters.boxes_to_pred_masks` instead of mixing modes.
+    Note: passing a bare ``(K, 4)`` integer array as `gt_ssu_map` (forgetting
+    to wrap it in `GTBoxes`) is not detected and will be silently
+    misinterpreted as a tiny pixel mask, since both are valid 2D integer
+    arrays.
+
     Args:
-        gt_ssu_map: A 2D integer array where each pixel holds the SSU id of
-            its ground-truth region (0 = background).
-        preds: Sequence of predictions, each either a 2D boolean numpy array
-            or a :class:`~cot_score.types.MaskInstance`.
+        gt_ssu_map: Either a 2D integer array where each pixel holds the SSU
+            id of its ground-truth region (0 = background), or a
+            :class:`~cotescore.types.GTBoxes` instance for the bbox fast path.
+        preds: For mask mode: sequence of predictions, each either a 2D
+            boolean numpy array or a :class:`~cotescore.types.MaskInstance`.
+            For bbox mode: an ``(M, 4)`` numpy array of predicted boxes in
+            ``[x, y, width, height]`` format, same coordinate frame as
+            `gt_ssu_map.boxes`.
         weight_coverage: Weight applied to the Coverage component in the
             composite score (default 1.0).
         weight_overlap: Weight applied to the Overlap component in the
@@ -285,17 +312,36 @@ def cote_score(
         A 5-tuple ``(cote, coverage, overlap, trespass, excess)`` where
         ``cote = weight_coverage * C - weight_overlap * O - weight_trespass * T``
         and each component is in the range ``[0.0, 1.0]``.
+
+    Raises:
+        TypeError: If `gt_ssu_map` and `preds` use mismatched representations.
     """
-    gt_ssu_map = _check_gt_map(gt_ssu_map)
-    pred_masks = _as_pred_masks(preds)
-    n = len(pred_masks)
-    C = coverage(gt_ssu_map, pred_masks)
-    T = trespass(gt_ssu_map, pred_masks)
-    if n <= 1:
-        O = 0.0
+    if isinstance(gt_ssu_map, GTBoxes):
+        if not isinstance(preds, np.ndarray):
+            raise TypeError(
+                "gt_ssu_map is a GTBoxes instance, so preds must be an (M, 4) "
+                "numpy array of [x, y, width, height] boxes, not a mask "
+                "sequence. Rasterize preds first via boxes_to_pred_masks(...) "
+                "if it is actually masks."
+            )
+        C, O, T, E = bbox_cote_components(gt_ssu_map, preds)
     else:
-        O = overlap(gt_ssu_map, pred_masks)
-    E = excess(gt_ssu_map, pred_masks)
+        if isinstance(preds, np.ndarray) and preds.ndim == 2 and preds.shape[1] == 4:
+            raise TypeError(
+                "gt_ssu_map is a pixel SSU map but preds looks like an (M, 4) "
+                "box array, not a mask sequence. Rasterize preds first via "
+                "boxes_to_pred_masks(...), or pass a GTBoxes gt_ssu_map instead."
+            )
+        gt_ssu_map = _check_gt_map(gt_ssu_map)
+        pred_masks = _as_pred_masks(preds)
+        n = len(pred_masks)
+        C = coverage(gt_ssu_map, pred_masks)
+        T = trespass(gt_ssu_map, pred_masks)
+        if n <= 1:
+            O = 0.0
+        else:
+            O = overlap(gt_ssu_map, pred_masks)
+        E = excess(gt_ssu_map, pred_masks)
     cot = (weight_coverage * C) - (weight_overlap * O) - (weight_trespass * T)
     return (float(cot), float(C), float(O), float(T), float(E))
 

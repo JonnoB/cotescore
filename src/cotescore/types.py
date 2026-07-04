@@ -105,6 +105,49 @@ class RegionPixels:
 
 
 @dataclass(frozen=True)
+class GTBoxes:
+    """Ground-truth SSU boxes for the analytic bounding-box COTe fast path.
+
+    Used as the ``gt`` argument to :func:`~cotescore.layout.cote_score` when
+    ground truth is available as boxes rather than a rasterized pixel map.
+    Bundles image extent alongside the boxes because ``excess``'s
+    background-area denominator needs it, and pure box coordinates carry no
+    information about the true canvas size (mask mode gets this for free
+    from ``gt_ssu_map.shape``).
+
+    Attributes:
+        boxes: (K, 4) float array of GT boxes in [x, y, width, height]
+            format, in the same coordinate frame as `image_width`/`image_height`.
+        ssu_ids: (K,) int array of GT SSU ids, parallel to `boxes`. 0 is
+            reserved for background and must not appear here. Ties for
+            overlapping GT boxes are broken by array order (index 0 wins),
+            mirroring boxes_to_gt_ssu_map's first-write-wins semantics for a
+            box list processed in the same order.
+        image_width: Width of the full image/canvas the boxes are defined in.
+        image_height: Height of the full image/canvas the boxes are defined in.
+    """
+
+    boxes: np.ndarray       # shape (K, 4) dtype float
+    ssu_ids: np.ndarray     # shape (K,) dtype int
+    image_width: float
+    image_height: float
+
+    def __post_init__(self) -> None:
+        if self.boxes.ndim != 2 or self.boxes.shape[1] != 4:
+            raise ValueError("boxes must be a (K, 4) array of [x, y, width, height]")
+        if self.ssu_ids.ndim != 1:
+            raise ValueError("ssu_ids must be a 1D array")
+        if len(self.boxes) != len(self.ssu_ids):
+            raise ValueError("boxes and ssu_ids must have the same length")
+        if not np.issubdtype(self.ssu_ids.dtype, np.integer):
+            raise TypeError("ssu_ids must be an integer array")
+        if self.ssu_ids.size and np.any(self.ssu_ids <= 0):
+            raise ValueError("ssu_ids must be positive; 0 is reserved for background")
+        if self.image_width <= 0 or self.image_height <= 0:
+            raise ValueError("image_width and image_height must be positive")
+
+
+@dataclass(frozen=True)
 class CDDDecomposition:
     """Four-way CDD decomposition result.
 
@@ -185,6 +228,9 @@ class ClassCOTeResult:
     coverage_precision: np.ndarray  # K  TP_k / A^P_k — same values as diag(coverage_matrix)
     coverage_recall: np.ndarray  # K  TP_k / A^S_k — GT-area-normalised, not in coverage_matrix
     coverage_f1: np.ndarray  # K  harmonic mean of coverage_precision and coverage_recall
+    micro_precision: float  # sum(TP_k) / sum(A^P_k) across all classes
+    micro_recall: float  # sum(TP_k) / sum(A^S_k) across all classes
+    micro_f1: float  # harmonic mean of micro_precision and micro_recall
 
 
 @dataclass(frozen=True)

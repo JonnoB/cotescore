@@ -29,7 +29,7 @@ from .class_metrics import (
     sum_class_counts,
     finalize_class_counts,
 )
-from .types import ClassCOTeResult, ClassCOTeCounts, TokenPositions, RegionChars, RegionPixels, CDDDecomposition, SpACERDecomposition
+from .types import ClassCOTeResult, ClassCOTeCounts, TokenPositions, RegionChars, RegionPixels, GTBoxes, CDDDecomposition, SpACERDecomposition
 from .adapters import boxes_to_region_pixels, polygons_to_panoptic_mask
 from .panoptic_quality import panoptic_quality
 from .visualisation import compute_cote_masks, visualize_cote_states
@@ -64,6 +64,7 @@ __all__ = [
     "TokenPositions",
     "RegionChars",
     "RegionPixels",
+    "GTBoxes",
     "CDDDecomposition",
     "SpACERDecomposition",
     "boxes_to_region_pixels",

@@ -22,7 +22,7 @@ from cotescore import (
     spacer_decomp_spatial,
     text_to_counter,
 )
-from cotescore._distributions import build_R_from_region_pixels
+from cotescore._distributions import build_R_from_region_pixels, build_R_from_bboxes, build_R_spatial
 from cotescore.ocr import _spacer_counts
 
 
@@ -463,6 +463,83 @@ class TestBuildRFromRegionPixels:
         pred = _make_pred_pixels([(0, 10, 5)])
         agg, per_region = build_R_from_region_pixels(gt, pred)
         assert agg == Counter()
+
+
+# =============================================================================
+# build_R_from_bboxes / build_R_spatial
+# =============================================================================
+
+
+class TestBuildRFromBboxes:
+    """Parity with TestBuildRFromRegionPixels, but with (M,4) array boxes."""
+
+    def test_perfect_coverage(self):
+        gt = _make_gt_chars([("a", 10, 5, 1), ("b", 20, 5, 1), ("a", 30, 5, 1)])
+        boxes = np.array([[0, 0, 100, 100]], dtype=float)
+        agg, per_region = build_R_from_bboxes(gt, boxes)
+        assert agg == Counter({"a": 2, "b": 1})
+        assert per_region[0] == Counter({"a": 2, "b": 1})
+
+    def test_missed_chars_absent(self):
+        gt = _make_gt_chars([("a", 10, 5, 1), ("b", 99, 99, 1)])
+        boxes = np.array([[0, 0, 20, 20]], dtype=float)
+        agg, per_region = build_R_from_bboxes(gt, boxes)
+        assert agg == Counter({"a": 1})
+        assert "b" not in agg
+
+    def test_overlap_double_counts(self):
+        gt = _make_gt_chars([("a", 10, 5, 1)])
+        boxes = np.array([[0, 0, 20, 20], [0, 0, 20, 20]], dtype=float)
+        agg, per_region = build_R_from_bboxes(gt, boxes)
+        assert agg["a"] == 2
+        assert per_region[0]["a"] == 1
+        assert per_region[1]["a"] == 1
+
+    def test_empty_bboxes(self):
+        gt = _make_gt_chars([("a", 10, 5, 1)])
+        boxes = np.zeros((0, 4))
+        agg, per_region = build_R_from_bboxes(gt, boxes)
+        assert agg == Counter()
+        assert per_region == {}
+
+    def test_empty_gt_chars(self):
+        gt = RegionChars(
+            tokens=np.array([]),
+            xs=np.array([], dtype=np.int64),
+            ys=np.array([], dtype=np.int64),
+            region_ids=np.array([], dtype=np.int64),
+        )
+        boxes = np.array([[0, 0, 20, 20]], dtype=float)
+        agg, per_region = build_R_from_bboxes(gt, boxes)
+        assert agg == Counter()
+
+    def test_half_open_interval_convention(self):
+        # char exactly on a box's lower-left edge is included (>=)
+        gt_included = _make_gt_chars([("a", 10, 10, 1)])
+        boxes = np.array([[10, 10, 10, 10]], dtype=float)
+        agg, _ = build_R_from_bboxes(gt_included, boxes)
+        assert agg["a"] == 1
+
+        # char exactly on a box's upper-right edge is excluded (<)
+        gt_excluded = _make_gt_chars([("a", 20, 20, 1)])
+        agg, _ = build_R_from_bboxes(gt_excluded, boxes)
+        assert "a" not in agg
+
+
+class TestBuildRSpatialDispatch:
+    def test_dispatch_agrees_region_pixels_vs_bboxes(self):
+        gt = _make_gt_chars([("a", 10, 5, 1), ("b", 20, 5, 1), ("a", 30, 5, 1)])
+
+        pred_pixels = _make_pred_pixels(
+            [(0, x, 5) for x in range(0, 40)]
+        )
+        boxes = np.array([[0, 0, 40, 10]], dtype=float)
+
+        agg_pixels, per_region_pixels = build_R_spatial(gt, pred_pixels)
+        agg_bboxes, per_region_bboxes = build_R_spatial(gt, boxes)
+
+        assert agg_pixels == agg_bboxes
+        assert per_region_pixels == per_region_bboxes
 
 
 # =============================================================================

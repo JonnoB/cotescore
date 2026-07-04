@@ -126,6 +126,24 @@ def _class_count_pred_mask(
     return mp
 
 
+def _micro_prf1(
+    tp: np.ndarray, pred_area: np.ndarray, gt_area: np.ndarray
+) -> Tuple[float, float, float]:
+    """Aggregate per-class TP/predicted-area/GT-area into a single dataset-wide
+    precision/recall/F1 (micro-averaged: sum the counts across all classes
+    first, then divide once — as opposed to averaging already-normalised
+    per-class ratios).
+    """
+    total_tp = float(np.sum(tp))
+    total_pred_area = float(np.sum(pred_area))
+    total_gt_area = float(np.sum(gt_area))
+    micro_precision = total_tp / total_pred_area if total_pred_area > 0 else 0.0
+    micro_recall = total_tp / total_gt_area if total_gt_area > 0 else 0.0
+    denom = micro_precision + micro_recall
+    micro_f1 = 2 * micro_precision * micro_recall / denom if denom > 0 else 0.0
+    return micro_precision, micro_recall, micro_f1
+
+
 # ---------------------------------------------------------------------------
 # Public matrix functions
 # ---------------------------------------------------------------------------
@@ -466,6 +484,7 @@ def cote_class(
     coverage_f1[nonzero_f1] = (
         2 * coverage_precision[nonzero_f1] * coverage_recall[nonzero_f1] / denom[nonzero_f1]
     )
+    micro_precision, micro_recall, micro_f1 = _micro_prf1(tp, a_p, a_s_k)
 
     return ClassCOTeResult(
         classes=classes,
@@ -478,6 +497,9 @@ def cote_class(
         coverage_precision=coverage_precision,
         coverage_recall=coverage_recall,
         coverage_f1=coverage_f1,
+        micro_precision=micro_precision,
+        micro_recall=micro_recall,
+        micro_f1=micro_f1,
     )
 
 
@@ -701,6 +723,7 @@ def finalize_class_counts(counts: ClassCOTeCounts) -> ClassCOTeResult:
     coverage_f1[nonzero_f1] = (
         2 * coverage_precision[nonzero_f1] * coverage_recall[nonzero_f1] / denom[nonzero_f1]
     )
+    micro_precision, micro_recall, micro_f1 = _micro_prf1(tp, pred_area, gt_area)
 
     return ClassCOTeResult(
         classes=classes,
@@ -713,6 +736,9 @@ def finalize_class_counts(counts: ClassCOTeCounts) -> ClassCOTeResult:
         coverage_precision=coverage_precision,
         coverage_recall=coverage_recall,
         coverage_f1=coverage_f1,
+        micro_precision=micro_precision,
+        micro_recall=micro_recall,
+        micro_f1=micro_f1,
     )
 
 

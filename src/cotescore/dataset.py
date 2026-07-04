@@ -909,6 +909,109 @@ class HierTextDataset:
         return self.annotations_by_image[self.images[idx]]
 
 
+class DocBankDataset:
+    """Loader for a local DocBank subset (SpACER's data/docbank pipeline).
+
+    Ground truth comes from a flat CSV of SSU-level regions (one row per
+    region, already the finished output of that repo's
+    ``scripts/extract_docbank_ssu_text.py`` — words grouped into runs of
+    consecutive identical labels), rather than DocBank's own per-word or
+    MSCOCO annotation formats. Column names deliberately match
+    :class:`HierTextDataset`'s annotation dict so both plug into
+    :mod:`scripts.export_predictions` identically.
+
+    Reference: https://github.com/doc-analysis/DocBank
+    """
+
+    def __init__(
+        self,
+        images_path: Path,
+        groundtruth_path: Path,
+        image_ext: str = "jpg",
+    ):
+        """
+        Args:
+            images_path: Directory containing ``<page_id>_ori.<image_ext>`` files.
+            groundtruth_path: Path to a gt_ssu_bboxes.csv-style CSV with columns
+                filename, page_id, image_width, image_height, x, y, width,
+                height, ssu_id, label, gt_text.
+            image_ext: Image file extension to glob for (default: 'jpg').
+        """
+        self.images_path = Path(images_path)
+        self.groundtruth_path = Path(groundtruth_path)
+        self.image_ext = image_ext
+        self.images: List[str] = []
+        self.annotations_by_image: Dict[str, List[Dict[str, Any]]] = {}
+        self._loaded = False
+
+    def load(self):
+        """Load the dataset from disk."""
+        if self._loaded:
+            return
+
+        if not self.images_path.exists():
+            raise FileNotFoundError(f"Images directory not found: {self.images_path}")
+        if not self.groundtruth_path.exists():
+            raise FileNotFoundError(f"Ground truth file not found: {self.groundtruth_path}")
+
+        gt_df = pd.read_csv(self.groundtruth_path)
+        available = {p.stem: p for p in self.images_path.glob(f"*.{self.image_ext}")}
+
+        for filename, page_df in gt_df.groupby("filename"):
+            img_path = available.get(Path(filename).stem)
+            if img_path is None:
+                logger.warning(f"No image found for GT entry {filename}, skipping")
+                continue
+
+            page_id = page_df["page_id"].iloc[0]
+            annotations = [
+                {
+                    "x": float(row.x),
+                    "y": float(row.y),
+                    "width": float(row.width),
+                    "height": float(row.height),
+                    "class": row.label,
+                    "ssu_id": int(row.ssu_id),
+                    "ssu_class": "object",
+                    "confidence": 1.0,
+                    "page_id": page_id,
+                }
+                for row in page_df.itertuples(index=False)
+            ]
+
+            self.images.append(str(img_path))
+            self.annotations_by_image[str(img_path)] = annotations
+
+        self._loaded = True
+
+    def __len__(self) -> int:
+        """Return the number of images in the dataset."""
+        if not self._loaded:
+            self.load()
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get a sample as ``{image_path, annotations, filename}``."""
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
+        image_path = self.images[idx]
+        return {
+            "image_path": image_path,
+            "annotations": self.annotations_by_image[image_path],
+            "filename": Path(image_path).name,
+        }
+
+    def get_annotations(self, idx: int) -> List[Dict[str, Any]]:
+        """Get ground-truth annotations for a sample."""
+        if not self._loaded:
+            self.load()
+        if idx < 0 or idx >= len(self.images):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.images)}")
+        return self.annotations_by_image[self.images[idx]]
+
+
 def extract_ssu_boxes(ground_truth: dict) -> list:
     """Extract SSU-level bounding boxes from a ground-truth dict.
 

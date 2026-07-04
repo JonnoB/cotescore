@@ -398,6 +398,27 @@ class TestCoveragePrecisionRecallF1:
         result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, [])
         assert np.all(result.coverage_precision == 0.0)
         assert np.all(result.coverage_f1 == 0.0)
+        assert result.micro_precision == 0.0
+        assert result.micro_f1 == 0.0
+
+    def test_micro_aggregates_across_classes_not_averages_per_class(self):
+        # A: pred = 50px, all correct (TP=50, A^P=50, A^S=50)
+        # B: pred = 10px, all correct, but B's GT area is 50px (TP=10, A^P=10, A^S=50)
+        # Per-class precision is 1.0/1.0 for both (macro avg would be 1.0), but
+        # micro precision must be sum(TP)/sum(A^P) = 60/60 = 1.0 and micro
+        # recall = sum(TP)/sum(A^S) = 60/100 = 0.6 (pulled down by B's low recall).
+        preds = [
+            _mask(H, W, 0, 5, 0, 10, "A"),  # 50px, all on A's 50px GT
+            _mask(H, W, 5, 6, 0, 10, "B"),  # 10px, all on B's 50px GT
+        ]
+        result = cote_class(GT_2CLASS, SSU_TO_CLASS_2, preds)
+        a, b = result.classes.index("A"), result.classes.index("B")
+        assert abs(result.coverage_precision[a] - 1.0) < TOLERANCE
+        assert abs(result.coverage_precision[b] - 1.0) < TOLERANCE
+        assert abs(result.micro_precision - 1.0) < TOLERANCE
+        assert abs(result.micro_recall - 0.6) < TOLERANCE
+        expected_f1 = 2 * 1.0 * 0.6 / (1.0 + 0.6)
+        assert abs(result.micro_f1 - expected_f1) < TOLERANCE
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +511,8 @@ class TestAccumulation:
                 getattr(result_accum, field), getattr(result_single, field),
                 atol=TOLERANCE, err_msg=field,
             )
+        for scalar_field in ("micro_precision", "micro_recall", "micro_f1"):
+            assert abs(getattr(result_accum, scalar_field) - getattr(result_single, scalar_field)) < TOLERANCE, scalar_field
 
     def test_sum_class_counts_rejects_mismatched_classes(self):
         gt, ssu, preds = self._two_page_scenario()[0]
