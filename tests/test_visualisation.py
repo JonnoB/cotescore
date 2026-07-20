@@ -106,13 +106,16 @@ class TestComputeCoteMasks:
         assert np.sum(masks["excess"]) == 25 * 50  # outside GT
 
     def test_empty_predictions(self):
-        """No predictions → all masks are zero."""
+        """No predictions → all GT pixels are 'missing', all other states zero."""
         gt = [{"x": 0, "y": 0, "width": 50, "height": 50}]
 
         masks = compute_cote_masks(_gt_map(gt), [])
 
         for state, mask in masks.items():
-            assert np.sum(mask) == 0, f"Expected {state} to be zero with no predictions"
+            if state == "missing":
+                assert np.sum(mask) == 50 * 50
+            else:
+                assert np.sum(mask) == 0, f"Expected {state} to be zero with no predictions"
 
     def test_masks_are_mutually_exclusive(self):
         """No pixel should appear in more than one state mask."""
@@ -131,7 +134,7 @@ class TestComputeCoteMasks:
         assert np.all(total <= 1), "Some pixels appear in multiple state masks"
 
     def test_output_keys(self):
-        """compute_cote_masks always returns all five keys."""
+        """compute_cote_masks always returns all six keys."""
         gt = [{"x": 0, "y": 0, "width": 50, "height": 50}]
         masks = compute_cote_masks(_gt_map(gt), _pred_masks(gt))
 
@@ -140,8 +143,23 @@ class TestComputeCoteMasks:
             "overlap",
             "trespass",
             "overlap_trespass",
+            "missing",
             "excess",
         }
+
+    def test_missing_marks_uncovered_gt(self):
+        """GT region with no prediction anywhere → missing pixels, rest zero."""
+        gt = [
+            {"x": 0, "y": 0, "width": 50, "height": 100},  # ssu_id=1, uncovered
+            {"x": 50, "y": 0, "width": 50, "height": 100},  # ssu_id=2, covered
+        ]
+        pred = [{"x": 50, "y": 0, "width": 50, "height": 100}]
+
+        masks = compute_cote_masks(_gt_map(gt), _pred_masks(pred))
+
+        assert np.sum(masks["missing"]) == 50 * 100
+        assert np.sum(masks["coverage"]) == 50 * 100
+        assert np.sum(masks["excess"]) == 0
 
     def test_output_shape_matches_gt_map(self):
         """Each mask has the same shape as the gt_ssu_map."""
@@ -195,8 +213,38 @@ class TestVisualizeCoteStates:
         image = np.ones((H, W), dtype=np.uint8) * 128
         zero_masks = {
             k: np.zeros((H, W), dtype=np.int32)
-            for k in ("coverage", "overlap", "trespass", "overlap_trespass", "excess")
+            for k in (
+                "coverage",
+                "overlap",
+                "trespass",
+                "overlap_trespass",
+                "missing",
+                "excess",
+            )
         }
         fig = visualize_cote_states(image, zero_masks)
         assert isinstance(fig, matplotlib.figure.Figure)
         matplotlib.pyplot.close(fig)
+
+    def _masks_with_missing(self):
+        """GT with no predictions at all → everything falls into 'missing'."""
+        gt = [{"x": 10, "y": 10, "width": 30, "height": 30}]
+        return compute_cote_masks(_gt_map(gt), [])
+
+    def test_missing_drawn_by_default(self):
+        image = np.ones((H, W), dtype=np.uint8) * 255
+        masks = self._masks_with_missing()
+        _, ax = matplotlib.pyplot.subplots()
+        patches = visualize_cote_states(image, masks, ax=ax)
+        matplotlib.pyplot.close(ax.figure)
+
+        assert any(p.get_label() == "Missing (uncovered GT)" for p in patches)
+
+    def test_missing_can_be_suppressed(self):
+        image = np.ones((H, W), dtype=np.uint8) * 255
+        masks = self._masks_with_missing()
+        _, ax = matplotlib.pyplot.subplots()
+        patches = visualize_cote_states(image, masks, ax=ax, show_missing=False)
+        matplotlib.pyplot.close(ax.figure)
+
+        assert not any(p.get_label() == "Missing (uncovered GT)" for p in patches)

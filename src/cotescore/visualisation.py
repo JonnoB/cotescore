@@ -26,6 +26,7 @@ COTE_COLORS: Dict[str, Tuple[float, float, float, float]] = {
     "overlap": (1.0, 0.8, 0.0, 0.5),  # Amber  – warning
     "trespass": (0.9, 0.2, 0.2, 0.6),  # Red    – bad
     "overlap_trespass": (0.7, 0.0, 0.5, 0.6),  # Purple – severe
+    "missing": (0.5, 0.5, 0.5, 0.4),  # Grey   – GT missed entirely
     "excess": (0.3, 0.5, 0.9, 0.4),  # Blue   – outside scope
 }
 
@@ -34,6 +35,7 @@ COTE_LABELS: Dict[str, str] = {
     "overlap": "Overlap",
     "trespass": "Trespass",
     "overlap_trespass": "Overlap + Trespass",
+    "missing": "Missing (uncovered GT)",
     "excess": "Excess",
 }
 
@@ -53,8 +55,11 @@ def compute_cote_masks(
 
     Returns:
         Dict with keys ``'coverage'``, ``'overlap'``, ``'trespass'``,
-        ``'overlap_trespass'``, ``'excess'``, each mapping to a binary
-        int32 np.ndarray mask of the same shape as ``gt_ssu_map``.
+        ``'overlap_trespass'``, ``'missing'``, ``'excess'``, each mapping to a
+        binary int32 np.ndarray mask of the same shape as ``gt_ssu_map``.
+
+        ``'missing'`` marks GT pixels that no prediction covers; together with
+        the four covered states it fully partitions the GT region.
     """
     gt_ssu_map = _check_gt_map(gt_ssu_map)
     pred_masks = _as_pred_masks(preds)
@@ -74,6 +79,7 @@ def compute_cote_masks(
     in_gt = M_s
     single = M_p == 1
     multi = M_p > 1
+    uncovered = M_p == 0
     has_trespass = trespass_mask > 0
 
     return {
@@ -81,6 +87,7 @@ def compute_cote_masks(
         "overlap": (in_gt & multi & ~has_trespass).astype(np.int32),
         "trespass": (in_gt & single & has_trespass).astype(np.int32),
         "overlap_trespass": (in_gt & multi & has_trespass).astype(np.int32),
+        "missing": (in_gt & uncovered).astype(np.int32),
         "excess": (~in_gt & (M_p > 0)).astype(np.int32),
     }
 
@@ -89,6 +96,7 @@ def visualize_cote_states(
     image: np.ndarray,
     masks: Dict[str, np.ndarray],
     ax: plt.Axes = None,
+    show_missing: bool = True,
 ):
     """Draw image and COTe mask overlays into an existing axes.
 
@@ -97,6 +105,9 @@ def visualize_cote_states(
         masks: Dict of binary masks, e.g. from :func:`compute_cote_masks`.
         ax: Matplotlib axes to draw into. If None, a new figure and axes are
             created and the figure is returned.
+        show_missing: Whether to draw the ``'missing'`` (uncovered GT) overlay,
+            shown in grey. Set to False to omit it, e.g. when it would clutter
+            a visualisation with large amounts of unpredicted GT.
 
     Returns:
         If ax is None: a matplotlib Figure. Otherwise, a list of legend Patch
@@ -116,6 +127,8 @@ def visualize_cote_states(
 
     legend_patches = []
     for state, color in COTE_COLORS.items():
+        if state == "missing" and not show_missing:
+            continue
         if state not in masks or np.sum(masks[state]) == 0:
             continue
         rgba = np.zeros((*masks[state].shape, 4), dtype=np.float32)
