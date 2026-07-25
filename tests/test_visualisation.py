@@ -8,7 +8,16 @@ matplotlib.use("Agg")  # non-interactive backend for tests
 import matplotlib.figure
 
 from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
-from cotescore.visualisation import compute_cote_masks, visualize_cote_states
+from cotescore.types import MaskInstance
+from cotescore.visualisation import (
+    MIXED_KEY,
+    MIXED_LABEL,
+    class_palette,
+    compute_class_masks,
+    compute_cote_masks,
+    visualize_class_masks,
+    visualize_cote_states,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -248,3 +257,203 @@ class TestVisualizeCoteStates:
         matplotlib.pyplot.close(ax.figure)
 
         assert not any(p.get_label() == "Missing (uncovered GT)" for p in patches)
+
+
+# ---------------------------------------------------------------------------
+# compute_class_masks
+# ---------------------------------------------------------------------------
+
+
+def _inst(box, label):
+    """A MaskInstance covering `box` = (x, y, width, height), tagged `label`."""
+    m = np.zeros((H, W), dtype=bool)
+    x, y, w, h = box
+    m[y : y + h, x : x + w] = True
+    return MaskInstance(mask=m, label=label)
+
+
+class TestComputeClassMasks:
+
+    def test_single_class(self):
+        """One prediction → its class carries every pixel, nothing is mixed."""
+        masks = compute_class_masks([_inst((10, 10, 30, 30), "text")])
+
+        assert np.sum(masks["text"]) == 30 * 30
+        assert np.sum(masks[MIXED_KEY]) == 0
+
+    def test_same_class_overlap_is_unioned_not_mixed(self):
+        """Two overlapping preds of the SAME class union; overlap is not a conflict."""
+        preds = [_inst((0, 0, 40, 40), "text"), _inst((20, 0, 40, 40), "text")]
+
+        masks = compute_class_masks(preds)
+
+        assert np.sum(masks["text"]) == 60 * 40  # union, not 2x the overlap
+        assert np.sum(masks[MIXED_KEY]) == 0
+
+    def test_different_class_overlap_becomes_mixed(self):
+        """Overlap between DIFFERENT classes moves to MIXED_KEY, out of both classes."""
+        preds = [_inst((0, 0, 40, 40), "text"), _inst((20, 0, 40, 40), "headline")]
+        overlap = 20 * 40
+
+        masks = compute_class_masks(preds)
+
+        assert np.sum(masks[MIXED_KEY]) == overlap
+        assert np.sum(masks["text"]) == 40 * 40 - overlap
+        assert np.sum(masks["headline"]) == 40 * 40 - overlap
+
+    def test_masks_are_mutually_exclusive(self):
+        """No pixel appears in more than one mask — the invariant the renderer needs."""
+        preds = [
+            _inst((0, 0, 60, 100), "text"),
+            _inst((40, 0, 60, 100), "headline"),
+            _inst((30, 0, 40, 100), "table"),
+        ]
+
+        masks = compute_class_masks(preds)
+
+        assert np.all(sum(masks.values()) <= 1)
+
+    def test_classes_argument_fixes_the_key_set(self):
+        """Requested classes all get a key, even with no predictions."""
+        masks = compute_class_masks(
+            [_inst((0, 0, 10, 10), "text")], classes=["text", "table", "image"]
+        )
+
+        assert set(masks) == {"text", "table", "image", MIXED_KEY}
+        assert np.sum(masks["table"]) == 0
+        assert np.sum(masks["image"]) == 0
+
+    def test_predictions_outside_requested_classes_are_dropped(self):
+        """A class not in `classes` contributes nothing — not even to mixed."""
+        preds = [_inst((0, 0, 40, 40), "text"), _inst((0, 0, 40, 40), "footnote")]
+
+        masks = compute_class_masks(preds, classes=["text"])
+
+        assert set(masks) == {"text", MIXED_KEY}
+        assert np.sum(masks["text"]) == 40 * 40
+        assert np.sum(masks[MIXED_KEY]) == 0
+
+    def test_empty_preds_with_shape(self):
+        masks = compute_class_masks([], classes=["text"], shape=(H, W))
+
+        assert masks["text"].shape == (H, W)
+        assert np.sum(masks["text"]) == 0
+
+    def test_empty_preds_without_shape_raises(self):
+        with pytest.raises(ValueError, match="shape is required"):
+            compute_class_masks([], classes=["text"])
+
+    def test_unlabelled_prediction_raises(self):
+        with pytest.raises(ValueError, match="label=None"):
+            compute_class_masks([MaskInstance(mask=np.zeros((H, W), dtype=bool))])
+
+    def test_reserved_mixed_key_as_class_raises(self):
+        with pytest.raises(ValueError, match="reserved"):
+            compute_class_masks([_inst((0, 0, 10, 10), "text")], classes=[MIXED_KEY])
+
+    def test_output_shape(self):
+        masks = compute_class_masks([_inst((0, 0, 10, 10), "text")])
+
+        for key, mask in masks.items():
+            assert mask.shape == (H, W), f"{key} mask has wrong shape"
+
+
+# ---------------------------------------------------------------------------
+# class_palette
+# ---------------------------------------------------------------------------
+
+
+class TestClassPalette:
+
+    def test_colour_follows_position_not_presence(self):
+        """The same class list yields the same colours regardless of what was predicted."""
+        classes = ["text", "header", "headline", "table"]
+
+        assert class_palette(classes)["table"] == class_palette(classes)["table"]
+
+    def test_distinct_classes_get_distinct_colours(self):
+        palette = class_palette(["a", "b", "c", "d", "e", "f", "g", "h"])
+        rgb = [c[:3] for k, c in palette.items() if k != MIXED_KEY]
+
+        assert len(set(rgb)) == 8
+
+    def test_mixed_key_always_present(self):
+        assert MIXED_KEY in class_palette(["text"])
+
+    def test_duplicate_classes_raise(self):
+        with pytest.raises(ValueError, match="duplicates"):
+            class_palette(["text", "text"])
+
+    def test_palette_cycles_past_eight(self):
+        """A 9th class reuses the first colour rather than failing."""
+        palette = class_palette([str(i) for i in range(9)])
+
+        assert palette["8"][:3] == palette["0"][:3]
+
+    def test_mixed_colour_is_not_a_class_colour(self):
+        palette = class_palette([str(i) for i in range(8)])
+        mixed_rgb = palette[MIXED_KEY][:3]
+
+        assert all(palette[str(i)][:3] != mixed_rgb for i in range(8))
+
+
+# ---------------------------------------------------------------------------
+# visualize_class_masks
+# ---------------------------------------------------------------------------
+
+
+class TestVisualizeClassMasks:
+
+    def test_returns_figure(self):
+        image = np.ones((H, W), dtype=np.uint8) * 255
+        masks = compute_class_masks([_inst((10, 10, 30, 30), "text")])
+
+        fig = visualize_class_masks(image, masks)
+
+        assert isinstance(fig, matplotlib.figure.Figure)
+        matplotlib.pyplot.close(fig)
+
+    def test_legend_names_the_classes(self):
+        image = np.ones((H, W), dtype=np.uint8) * 255
+        preds = [_inst((0, 0, 40, 40), "text"), _inst((60, 0, 30, 30), "headline")]
+        masks = compute_class_masks(preds)
+
+        _, ax = matplotlib.pyplot.subplots()
+        patches = visualize_class_masks(image, masks, ax=ax)
+        matplotlib.pyplot.close(ax.figure)
+
+        assert {p.get_label() for p in patches} == {"text", "headline"}
+
+    def test_mixed_appears_in_legend_only_when_present(self):
+        image = np.ones((H, W), dtype=np.uint8) * 255
+        clean = compute_class_masks([_inst((0, 0, 40, 40), "text")])
+        conflicted = compute_class_masks(
+            [_inst((0, 0, 40, 40), "text"), _inst((20, 0, 40, 40), "headline")]
+        )
+
+        labels = []
+        for masks in (clean, conflicted):
+            _, ax = matplotlib.pyplot.subplots()
+            labels.append({p.get_label() for p in visualize_class_masks(image, masks, ax=ax)})
+            matplotlib.pyplot.close(ax.figure)
+
+        assert MIXED_LABEL not in labels[0]
+        assert MIXED_LABEL in labels[1]
+
+    def test_empty_masks(self):
+        image = np.ones((H, W), dtype=np.uint8) * 200
+        fig = visualize_class_masks(image, {})
+        assert isinstance(fig, matplotlib.figure.Figure)
+        matplotlib.pyplot.close(fig)
+
+    def test_explicit_palette_is_used(self):
+        """Colours passed in override the default, so they can stay stable across images."""
+        image = np.ones((H, W), dtype=np.uint8) * 255
+        masks = compute_class_masks([_inst((0, 0, 40, 40), "text")])
+        palette = {"text": (0.0, 0.0, 1.0, 0.5), MIXED_KEY: (0.5, 0.5, 0.5, 0.5)}
+
+        _, ax = matplotlib.pyplot.subplots()
+        patches = visualize_class_masks(image, masks, colors=palette, ax=ax)
+        matplotlib.pyplot.close(ax.figure)
+
+        assert patches[0].get_facecolor()[:3] == (0.0, 0.0, 1.0)

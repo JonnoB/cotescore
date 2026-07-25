@@ -32,7 +32,14 @@ from .class_metrics import (
 from .types import ClassCOTeResult, ClassCOTeCounts, TokenPositions, RegionChars, RegionPixels, GTBoxes, CDDDecomposition, SpACERDecomposition
 from .adapters import boxes_to_region_pixels, polygons_to_panoptic_mask
 from .panoptic_quality import panoptic_quality
-from .visualisation import compute_cote_masks, visualize_cote_states
+from .visualisation import (
+    MIXED_KEY,
+    class_palette,
+    compute_class_masks,
+    compute_cote_masks,
+    visualize_class_masks,
+    visualize_cote_states,
+)
 from .dataset import load_limerick_example, extract_ssu_boxes
 from .alto_ssu_tagger import ALTOSSUTagger, assign_alto_ssu
 
@@ -72,6 +79,10 @@ __all__ = [
     "panoptic_quality",
     "compute_cote_masks",
     "visualize_cote_states",
+    "compute_class_masks",
+    "visualize_class_masks",
+    "class_palette",
+    "MIXED_KEY",
     "load_limerick_example",
     "extract_ssu_boxes",
     "ALTOSSUTagger",
