@@ -5,9 +5,9 @@ This module provides functionality for loading and preprocessing the
 NCSE v2.0 Dataset of OCR-Processed 19th Century English Newspapers.
 """
 
-from importlib.resources import files
+from importlib.resources import files, as_file
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Sequence, Tuple
 import re
 import json
 import logging
@@ -1012,55 +1012,159 @@ class DocBankDataset:
         return self.annotations_by_image[self.images[idx]]
 
 
-def extract_ssu_boxes(ground_truth: dict) -> list:
-    """Extract SSU-level bounding boxes from a ground-truth dict.
-
-    For each story, lines are grouped by their ``ssu`` field and the axis-aligned
-    union box is computed. Each returned box is tagged with a 1-based ``ssu_id``
-    and is ready to pass directly to
-    :func:`~cotescore.adapters.boxes_to_gt_ssu_map`.
+def _boxes_from_chars(chars: pd.DataFrame, group_key: str, carry: Sequence[str] = ()) -> list:
+    """Group a character table and return the extent box of each group.
 
     Args:
-        ground_truth: Ground-truth dict as returned by :func:`load_limerick_example`,
-            containing a ``"stories"`` key whose values each have a ``"lines"`` list.
+        chars: Character table as returned by :func:`load_limerick_example`.
+        group_key: Column to group on, e.g. ``"ssu_id"`` or ``"line_id"``.
+        carry: Additional columns copied onto each box from the group's first row.
 
     Returns:
-        List of dicts with keys ``x``, ``y``, ``width``, ``height``, ``ssu_id``.
+        List of XYWH dicts, ordered by ``group_key``, each carrying that key.
     """
-    gt_boxes: list = []
-    for story in ground_truth["stories"].values():
-        groups: dict = {}
-        for line in story["lines"]:
-            groups.setdefault(line["ssu"], []).append(line["bbox"])
-        for ssu in sorted(groups):
-            bboxes = groups[ssu]
-            x_min = min(b[0] for b in bboxes)
-            y_min = min(b[1] for b in bboxes)
-            x_max = max(b[0] + b[2] for b in bboxes)
-            y_max = max(b[1] + b[3] for b in bboxes)
-            gt_boxes.append(
-                {
-                    "x": x_min,
-                    "y": y_min,
-                    "width": x_max - x_min,
-                    "height": y_max - y_min,
-                    "ssu_id": len(gt_boxes) + 1,
-                }
-            )
-    return gt_boxes
+    boxes: list = []
+    for key, group in chars.groupby(group_key, sort=True):
+        x_min = float(group["x"].min())
+        y_min = float(group["y"].min())
+        x_max = float((group["x"] + group["width"]).max())
+        y_max = float((group["y"] + group["height"]).max())
+        box = {
+            "x": x_min,
+            "y": y_min,
+            "width": x_max - x_min,
+            "height": y_max - y_min,
+            group_key: int(key),
+        }
+        for col in carry:
+            value = group[col].iloc[0]
+            box[col] = value.item() if hasattr(value, "item") else value
+        boxes.append(box)
+    return boxes
 
 
-def load_limerick_example() -> Tuple[dict, np.ndarray, list]:
+def extract_ssu_boxes(chars: pd.DataFrame) -> list:
+    """Extract SSU-level ground-truth boxes from the character table.
+
+    Each SSU's box is the axis-aligned extent of its characters, so the box is
+    ink-derived rather than a typeset rectangle padded with whitespace. The
+    result is ready to pass straight to
+    :func:`~cotescore.adapters.boxes_to_gt_ssu_map`.
+
+    ``ssu_id`` is 1-based in the character table because cotescore reserves 0
+    for background; it is carried through unchanged.
+
+    Args:
+        chars: Character table as returned by :func:`load_limerick_example`.
+
+    Returns:
+        List of dicts with keys ``x``, ``y``, ``width``, ``height``, ``ssu_id``,
+        ``ssu_class`` and ``semantic_unit``.
+    """
+    return _boxes_from_chars(chars, "ssu_id", carry=("ssu_class", "semantic_unit"))
+
+
+def extract_line_boxes(chars: pd.DataFrame) -> list:
+    """Extract line-level boxes from the character table.
+
+    Useful as a finer-grained alternative ground truth when demonstrating how
+    detection metrics behave under a granularity mismatch.
+
+    Args:
+        chars: Character table as returned by :func:`load_limerick_example`.
+
+    Returns:
+        List of dicts with keys ``x``, ``y``, ``width``, ``height``, ``line_id``,
+        ``ssu_id`` and ``semantic_unit``.
+    """
+    return _boxes_from_chars(chars, "line_id", carry=("ssu_id", "semantic_unit"))
+
+
+def extract_word_boxes(chars: pd.DataFrame) -> list:
+    """Extract word-level boxes from the character table.
+
+    Args:
+        chars: Character table as returned by :func:`load_limerick_example`.
+
+    Returns:
+        List of dicts with keys ``x``, ``y``, ``width``, ``height``, ``word_id``,
+        ``line_id`` and ``ssu_id``.
+    """
+    return _boxes_from_chars(chars, "word_id", carry=("line_id", "ssu_id"))
+
+
+def chars_to_region_chars(chars: pd.DataFrame) -> "RegionChars":
+    """Convert the character table to :class:`~cotescore.types.RegionChars`.
+
+    This is the input the spatial OCR decompositions want — see
+    :func:`~cotescore.ocr.cdd_decomp_spatial`. Character midpoints are derived
+    from the stored extents.
+
+    Args:
+        chars: Character table as returned by :func:`load_limerick_example`.
+
+    Returns:
+        A ``RegionChars`` whose ``region_ids`` are the table's ``ssu_id`` values.
+    """
+    from cotescore.types import RegionChars
+
+    return RegionChars(
+        tokens=chars["char"].to_numpy(dtype=object),
+        xs=np.rint(chars["x"] + chars["width"] / 2.0).astype(int).to_numpy(),
+        ys=np.rint(chars["y"] + chars["height"] / 2.0).astype(int).to_numpy(),
+        region_ids=chars["ssu_id"].astype(int).to_numpy(),
+    )
+
+
+def reconstruct_text(chars: pd.DataFrame) -> str:
+    """Rebuild the page text from the character table.
+
+    Characters are ordered by ``(line_id, x)`` and grouped into words by
+    ``word_id``. Space characters are not stored — word boundaries carry that
+    information instead.
+
+    Args:
+        chars: Character table as returned by :func:`load_limerick_example`.
+
+    Returns:
+        The page text, one line per ``line_id``, in reading order.
+    """
+    lines = []
+    ordered = chars.sort_values(["line_id", "x"])
+    for _, line in ordered.groupby("line_id", sort=True):
+        words = [
+            "".join(word.sort_values("x")["char"])
+            for _, word in line.groupby("word_id", sort=False)
+        ]
+        lines.append(" ".join(words))
+    return "\n".join(lines)
+
+
+def load_limerick_example() -> Tuple[pd.DataFrame, np.ndarray, list]:
     """Load the bundled limerick case study example.
 
+    The ground truth is a character table — one row per non-space character,
+    with its pixel extent and its word, line and SSU groupings. Everything the
+    analysis needs is derived from it: region boxes at any granularity
+    (:func:`extract_ssu_boxes`, :func:`extract_line_boxes`,
+    :func:`extract_word_boxes`), character positions for the spatial OCR
+    decompositions (:func:`chars_to_region_chars`), and the page text
+    (:func:`reconstruct_text`).
+
+    Columns: ``char``, ``x``, ``y``, ``width``, ``height``, ``word_id``,
+    ``line_id``, ``ssu_id``, ``ssu_class``, ``semantic_unit``.
+
+    ``semantic_unit`` identifies the work an SSU belongs to. A title and its body
+    share one, and so do the two halves of a poem that continues across a column
+    boundary — which is what makes the page a meaningful COTe example.
+
     Returns:
-        Tuple of (ground_truth dict, image as numpy array, pred_boxes).
-        ``pred_boxes`` is a list of example prediction bounding boxes in XYWH format.
-        Use :func:`extract_ssu_boxes` to build tagged GT boxes for
-        :func:`~cotescore.adapters.boxes_to_gt_ssu_map`.
+        Tuple of (character table, image as a numpy array, prediction boxes).
+        The predictions are XYWH dicts standing in for a layout detector.
     """
     pkg = files("cotescore") / "assets" / "limerick_case_study"
-    ground_truth = json.loads((pkg / "ground_truth.json").read_text())
+    with as_file(pkg / "characters.parquet") as parquet_path:
+        chars = pd.read_parquet(parquet_path)
     image = np.array(Image.open(pkg / "limerick_image.png"))
     predictions = json.loads((pkg / "predictions.json").read_text())
-    return ground_truth, image, predictions
+    return chars, image, predictions

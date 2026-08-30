@@ -6,420 +6,265 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
-    """Imports for analysis (no rendering dependencies)."""
-    from pathlib import Path
-
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import pandas as pd
-
-    # Import cote_score metrics for evaluation
-    from cotescore.metrics import mean_iou, iou, overlap, cote_score, f1
-    from cotescore.visualisation import compute_cote_masks, visualize_cote_states
-    from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
-
-    figure_path = Path("data/figures")
-    return (
-        boxes_to_gt_ssu_map,
-        boxes_to_pred_masks,
-        compute_cote_masks,
-        cote_score,
-        f1,
-        figure_path,
-        iou,
-        mean_iou,
-        np,
-        pd,
-        plt,
-        visualize_cote_states,
-    )
-
-
-@app.cell
-def _():
     import marimo as mo
 
     return (mo,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # COTe: a worked example
+
+    The COTe score is a decomposable evaluation metric for Document Layout Analysis. The COTe assigns every pixel a single state based on the relationship between prediction and ground truth. There are 6 possible pixel states, which produce the 5 elements that make up the COTe score (missing being complementary to Coverage).
+
+    - **coverage** — ground truth found by exactly one prediction
+    - **overlap** — ground truth claimed by more than one
+    - **trespass** — ground truth covered by a prediction belonging to another unit
+    - **overlap + trespass** — both at once
+    - **excess** — background a prediction claimed
+    - **missing** — ground truth no prediction found
+
+    The COTe Score builds on the Semantic Structural Unit (SSU) concept, which groups text using the logical groups that come from the narrative flow. As such, the title of a limerick and the limerick itself form a Semantic unit; however, as the title and the text are different classes of text, they each form their own structural unit. As shown in the example below, the first and last limericks are formed of two SSUs each whilst limerick 2 is formed of three as the limerick text is split across both columns.
+
+    This notebook provides a worked visual example of the COTe score. It uses a series of three limericks on a two-column layout.
+
+    By the end of the notebook, you will have gained an intuitive and practical understanding of the COTe score and how, using the SSU, it is more expressive than the traditional approach to Document Layout Analysis, the “F1”.
+    """)
+    return
+
+
 @app.cell
 def _():
-    """Load the pre-generated image, ground truth, and example predictions from the bundled example."""
-    from cotescore import load_limerick_example, extract_ssu_boxes
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
 
-    ground_truth, image_array, pred_boxes = load_limerick_example()
-    gt_boxes = extract_ssu_boxes(ground_truth)
-
-    print(f"Loaded image shape: {image_array.shape}")
-    print(f"Loaded GT with {len(ground_truth['stories'])} stories")
-    print(f"Loaded {len(gt_boxes)} GT boxes and {len(pred_boxes)} prediction boxes")
-    return ground_truth, gt_boxes, image_array, pred_boxes
-
-
-@app.cell
-def _(iou):
-    """Helper functions for granularity comparison metrics."""
-
-    def extract_line_boxes(gt):
-        """Extract all line-level boxes from simplified ground truth."""
-        line_boxes = []
-        for story in gt["stories"].values():
-            for line in story["lines"]:
-                bbox = line["bbox"]
-                line_boxes.append({"x": bbox[0], "y": bbox[1], "width": bbox[2], "height": bbox[3]})
-        return line_boxes
-
-    def calculate_detection_metrics(pred_boxes, gt_boxes, iou_threshold=0.5):
-        """Calculate TP/FP/FN using IoU-based greedy matching."""
-        if not pred_boxes or not gt_boxes:
-            return {
-                "tp": 0,
-                "fp": len(pred_boxes),
-                "fn": len(gt_boxes),
-                "precision": 0.0,
-                "recall": 0.0,
-                "f1": 0.0,
-            }
-
-        n_pred, n_gt = len(pred_boxes), len(gt_boxes)
-
-        # Compute IoU matrix and find pairs above threshold
-        pairs = []
-        for i in range(n_pred):
-            for j in range(n_gt):
-                iou_val = iou(pred_boxes[i], gt_boxes[j])
-                if iou_val >= iou_threshold:
-                    pairs.append((iou_val, i, j))
-
-        # Greedy matching: highest IoU first
-        pairs.sort(reverse=True, key=lambda x: x[0])
-        matched_pred, matched_gt = set(), set()
-        for _, pred_idx, gt_idx in pairs:
-            if pred_idx not in matched_pred and gt_idx not in matched_gt:
-                matched_pred.add(pred_idx)
-                matched_gt.add(gt_idx)
-
-        tp = len(matched_pred)
-        fp = n_pred - tp
-        fn = n_gt - len(matched_gt)
-        precision = tp / n_pred if n_pred > 0 else 0.0
-        recall = tp / n_gt if n_gt > 0 else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-
-        return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
-
-    return calculate_detection_metrics, extract_line_boxes
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        r"""
-    ## Ground Truth Visualization
-
-    The following cells show the bounding boxes at different granularity levels:
-    1. **SSU level** - Paragraphs colored by Semantic-Structural Unit (SSU)
-    2. **Line level** - Each line of text has its own bbox (derived from characters)
-    3. **Character level** - Each character has its own bbox
-
-    The SSU coloring shows how the split limerick (Broken Computer) has:
-    - SSU 0: Title
-    - SSU 1: Body text in column 1
-    - SSU 2: Continuation in column 2
-    """
+    from cotescore import (
+        load_limerick_example,
+        extract_ssu_boxes,
+        extract_line_boxes,
+        extract_word_boxes,
+        reconstruct_text,
+        cote_score,
+        compute_cote_masks,
+        visualize_cote_states,
     )
+    from cotescore.layout import f1, iou, mean_iou
+    from cotescore.adapters import boxes_to_gt_ssu_map, boxes_to_pred_masks
+
+    return (
+        boxes_to_gt_ssu_map,
+        boxes_to_pred_masks,
+        compute_cote_masks,
+        cote_score,
+        extract_line_boxes,
+        extract_ssu_boxes,
+        extract_word_boxes,
+        f1,
+        load_limerick_example,
+        mean_iou,
+        np,
+        patches,
+        plt,
+        reconstruct_text,
+        visualize_cote_states,
+    )
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Saving the figures
+
+    Toggle on to write every figure in this notebook to `data/figures/` at
+    300 dpi. Off by default, so simply running the notebook writes nothing.
+    """)
     return
 
 
 @app.cell
-def _(figure_path, gt_boxes, image_array, plt):
-    """Visualize SSU-level bounding boxes colored by SSU id."""
-    import matplotlib.patches as _patches
-
-    _colors = ["red", "blue", "green"]
-
-    _fig_ssu, _ax_ssu = plt.subplots(figsize=(12, 6.2), dpi=300)
-    _ax_ssu.imshow(image_array, cmap="gray", vmin=0, vmax=255)
-    _ax_ssu.axis("off")
-
-    _legend_patches = []
-    for _i, _box in enumerate(gt_boxes):
-        _color = _colors[_i % len(_colors)]
-        _ax_ssu.add_patch(
-            _patches.Rectangle(
-                (_box["x"], _box["y"]),
-                _box["width"],
-                _box["height"],
-                linewidth=2,
-                edgecolor=_color,
-                facecolor="none",
-                alpha=0.8,
-                linestyle="--",
-            )
-        )
-        _legend_patches.append(_patches.Patch(color=_color, label=f"SSU {_box['ssu_id']}"))
-
-    _fig_ssu.legend(
-        handles=_legend_patches,
-        loc="lower center",
-        ncol=len(_legend_patches),
-        fontsize=15,
-        framealpha=0.9,
+def _(mo):
+    save_figures = mo.ui.checkbox(
+        value=False,
+        label="Save figures to `data/figures` at 300 dpi",
     )
-    plt.title("Structural Semantic Units", fontsize=25)
-    plt.tight_layout()
-    plt.savefig(figure_path / "example_ssu.png", bbox_inches="tight", pad_inches=0)
+    save_figures
+    return (save_figures,)
+
+
+@app.cell
+def _(save_figures):
+    from pathlib import Path
+
+    try:
+        _root = Path(__file__).resolve().parent.parent
+    except NameError:                       # no __file__ in some marimo contexts
+        _root = Path.cwd()
+    FIGURE_DIR = _root / "data" / "figures"
+
+    def save_figure(fig, name):
+        """Write ``fig`` to data/figures/<name>.png at 300 dpi, if enabled."""
+        if not save_figures.value:
+            return
+        FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+        _path = FIGURE_DIR / f"{name}.png"
+        fig.savefig(_path, dpi=300, bbox_inches="tight")
+        print(f"saved {_path}")
+
+    return (save_figure,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## The ground truth is a character table
+
+    Once loaded the basic image and the groundtruth data table can be inspected. The data table shows a simple strcuture of the bounding box for each letter plus the necessary unique ID's requried to reconstruct the text.
+    """)
+    return
+
+
+@app.cell
+def _(load_limerick_example, plt, save_figure):
+    chars, image, pred_boxes = load_limerick_example()
+
+    _fig, _ax = plt.subplots(figsize=(14, 6))
+    _ax.imshow(image, cmap='gray')
+
+    _ax.set_title("Three Limericks")
+    _ax.axis('off')
+    save_figure(_fig, "basic_limericks")
+    plt.show()
+    return chars, image, pred_boxes
+
+
+@app.cell
+def _(chars, extract_ssu_boxes, image, pred_boxes):
+    gt_boxes = extract_ssu_boxes(chars)
+
+    print(f"{len(chars)} characters   image {image.shape[1]}x{image.shape[0]}   "
+          f"{len(pred_boxes)} predictions")
+    print()
+    print(chars.head(8).to_string(index=False))
+    return (gt_boxes,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Limerick text
+
+    As can be seen below the text can be reconstructed to produce raw text of the three limericks
+    """)
+    return
+
+
+@app.cell
+def _(chars, reconstruct_text):
+    """The page text, rebuilt from character positions and word groupings alone."""
+    print(reconstruct_text(chars))
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Visualising the underlying Semantic Units
+
+    Although simple it can help to show the limerick image as a coloured by Semantic Unit. This visualisation clearly shows that whilst the second limerick is split across three spatially separate boxes it is represented as a single semantic whole,
+    """)
+    return
+
+
+@app.cell
+def _(chars, gt_boxes, image, np, patches, plt, save_figure):
+    """Ground truth coloured by semantic unit: the split poem shares a colour."""
+
+
+    _fig, _ax = plt.subplots(figsize=(14, 6))
+    _ax.imshow(image, cmap='gray')
+
+    _sems = sorted(chars.semantic_unit.unique())
+    _colours = plt.cm.Set2(np.linspace(0, 1, max(len(_sems), 3)))
+
+    for _b in gt_boxes:
+        _c = _colours[_sems.index(_b['semantic_unit'])]
+        _ax.add_patch(patches.Rectangle(
+            (_b['x'], _b['y']), _b['width'], _b['height'],
+            linewidth=2, edgecolor=_c, facecolor=_c, alpha=0.30,
+        ))
+        _ax.text(_b['x'] + 4, _b['y'] + 14, f"ssu {_b['ssu_id']}",
+                 fontsize=9, color='black')
+
+    _ax.set_title("Ground truth SSUs, coloured by semantic unit")
+    _ax.axis('off')
+    save_figure(_fig, "ssu_semantic_units")
     plt.show()
     return
 
 
-@app.cell
-def _(ground_truth, image_array, np, plt):
-    """Visualize line-level bounding boxes (custom implementation)."""
-    import matplotlib.patches as _patches
-    import matplotlib.cm as _cm
-
-    _fig_line, _ax_line = plt.subplots(figsize=(12, 10), dpi=100)
-    _ax_line.imshow(image_array, cmap="gray", vmin=0, vmax=255)
-    _ax_line.set_title("Line-Level Bounding Boxes (colored by story)")
-    _ax_line.axis("off")
-
-    # Create color map for different stories
-    _story_colors = _cm.Set2(np.linspace(0, 1, max(len(ground_truth["stories"]), 1)))
-
-    _legend_patches = []
-    for _story_idx, (_story_id, _story) in enumerate(ground_truth["stories"].items()):
-        _color = _story_colors[_story_idx % len(_story_colors)]
-        _legend_patches.append(_patches.Patch(color=_color, label=_story_id))
-
-        for _i, _line in enumerate(_story["lines"]):
-            _bbox = _line["bbox"]
-            _x, _y, _width, _height = _bbox
-
-            _rect = _patches.Rectangle(
-                (_x, _y),
-                _width,
-                _height,
-                linewidth=1.5,
-                edgecolor=_color,
-                facecolor="none",
-                alpha=0.8,
-            )
-            _ax_line.add_patch(_rect)
-
-            _ax_line.text(
-                _x - 10,
-                _y + _height / 2,
-                f"L{_i}",
-                fontsize=6,
-                color=_color,
-                verticalalignment="center",
-                horizontalalignment="right",
-            )
-
-    _ax_line.legend(handles=_legend_patches, loc="upper left", bbox_to_anchor=(1.02, 1), fontsize=6)
-    plt.tight_layout()
-    return
-
-
-@app.cell
-def _(ground_truth, image_array, np, plt):
-    """Visualize character-level bounding boxes colored by line index."""
-    import matplotlib.patches as _patches
-    import matplotlib.cm as _cm
-
-    # Collect all characters with their global line index
-    _char_items = []  # (line_idx, x, y, w, h)
-    _line_idx = 0
-    for _story in ground_truth["stories"].values():
-        for _line in _story["lines"]:
-            for _char in _line["characters"]:
-                _b = _char["bbox"]
-                _char_items.append((_line_idx, _b[0], _b[1], _b[2], _b[3]))
-            _line_idx += 1
-
-    _n_lines = _line_idx
-    _colors = _cm.tab20(np.linspace(0, 1, max(_n_lines, 1)))
-
-    _fig_char, _ax_char = plt.subplots(figsize=(12, 10), dpi=100)
-    _ax_char.imshow(image_array, cmap="gray", vmin=0, vmax=255)
-    _ax_char.axis("off")
-
-    for _li, _x, _y, _w, _h in _char_items:
-        _color = _colors[_li % len(_colors)]
-        _ax_char.add_patch(
-            _patches.Rectangle(
-                (_x, _y),
-                _w,
-                _h,
-                linewidth=0.5,
-                edgecolor=_color,
-                facecolor="none",
-                alpha=0.7,
-            )
-        )
-
-    plt.title("Character-Level Bounding Boxes (colored by line)")
-    plt.tight_layout()
-    return
-
-
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-    ## Granularity Mismatch in Bounding Box Evaluation
+    mo.md(r"""
+    ## Granularity
 
-    Traditional detection metrics (Precision/Recall/F1) assume ground truth and predictions
-    have the same granularity. When there's a mismatch:
+    A major issue with using the F1 as a quality metric for text is that it is very sensitive to the granularity of the predictions and the ground truth. Text can be show at different granularities with no single method being necessarily better than the other.
 
-    - **GT: Line, Pred: Para** - If predictions are at paragraph level but GT is at line level,
-      each paragraph box can only match ONE line, causing many false negatives.
-
-    - **GT: Para, Pred: Line** - If predictions are at line level but GT is at paragraph level,
-      each line can only match ONE paragraph, causing many false positives.
-
-    The **SSU-based Coverage** metric handles this correctly by measuring what fraction of
-    the ground truth area is covered by predictions, regardless of box count.
-    """
-    )
+    The box below shows the bounding boxes at three levels of granularity. In some cases bounding boxes can be at character level.
+    """)
     return
 
 
 @app.cell
-def _(
-    boxes_to_gt_ssu_map,
-    boxes_to_pred_masks,
-    calculate_detection_metrics,
-    cote_score,
-    extract_line_boxes,
-    ground_truth,
-    gt_boxes,
-    mean_iou,
-    mo,
-    pd,
-):
-    """Compute and display granularity comparison table."""
+def _(chars, extract_line_boxes, extract_ssu_boxes, extract_word_boxes):
+    line_boxes = extract_line_boxes(chars)
+    word_boxes = extract_word_boxes(chars)
 
-    # Extract line-level boxes; SSU-level boxes come from gt_boxes (loaded with the example)
-    line_boxes = extract_line_boxes(ground_truth)
-    para_boxes = gt_boxes
-
-    # Get image dimensions
-    img_w = int(ground_truth["page"]["width"])
-    img_h = int(ground_truth["page"]["height"])
-
-    # Convert GT boxes to SSU map (required by new cote_score API)
-    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_w, img_h, img_w, img_h)
-
-    # Scenario 1: GT=Line, Pred=Para (paragraph predictions vs line ground truth)
-    m1 = calculate_detection_metrics(para_boxes, line_boxes)
-    mean_iou_1 = mean_iou(para_boxes, line_boxes)
-    coverage_1, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(para_boxes, img_w, img_h, img_w, img_h))
-
-    # Scenario 2: GT=Para, Pred=Line (line predictions vs paragraph ground truth)
-    m2 = calculate_detection_metrics(line_boxes, para_boxes)
-    mean_iou_2 = mean_iou(line_boxes, para_boxes)
-    coverage_2, _, _, _, _ = cote_score(_gt_ssu_map, boxes_to_pred_masks(line_boxes, img_w, img_h, img_w, img_h))
-
-    # Build comparison DataFrame
-    comparison_df = pd.DataFrame(
-        {
-            "Metric": [
-                "True Positive",
-                "False Positive",
-                "False Negative",
-                "Precision",
-                "Recall",
-                "F1",
-                "Mean IoU",
-                "COTe Score",
-            ],
-            "GT: Line, Pred: Para": [
-                m1["tp"],
-                m1["fp"],
-                m1["fn"],
-                f"{m1['precision']:.2f}",
-                f"{m1['recall']:.2f}",
-                f"{m1['f1']:.2f}",
-                f"{mean_iou_1:.2f}",
-                f"{coverage_1:.2f}",
-            ],
-            "GT: Para, Pred: Line": [
-                m2["tp"],
-                m2["fp"],
-                m2["fn"],
-                f"{m2['precision']:.2f}",
-                f"{m2['recall']:.2f}",
-                f"{m2['f1']:.2f}",
-                f"{mean_iou_2:.2f}",
-                f"{coverage_2:.2f}",
-            ],
-        }
-    )
-
-    # Generate LaTeX table
-    latex_inner = comparison_df.to_latex(index=False, escape=False)
-    # Add midrule before SSU based Coverage
-    latex_lines = latex_inner.split("\n")
-    for _i, _line in enumerate(latex_lines):
-        if "SSU based Coverage" in _line:
-            latex_lines.insert(_i, r"\midrule")
-            break
-    latex_inner = "\n".join(latex_lines)
-
-    _latex_table = f"""\\begin{{table}}
-    \\centering
-    {latex_inner}    \\caption{{Caption}}
-    \\end{{table}}"""
-
-    mo.md(f"### LaTeX Table Output\n```latex\n{_latex_table}\n```")
-    return
+    print(f"  SSUs  {len(extract_ssu_boxes(chars)):3d}")
+    print(f"  lines {len(line_boxes):3d}")
+    print(f"  words {len(word_boxes):3d}")
+    return line_boxes, word_boxes
 
 
 @app.cell
-def _(mo):
-    mo.md(
-        r"""
-    ## COTe Pixel State Visualization
+def _(gt_boxes, image, line_boxes, patches, plt, save_figure, word_boxes):
+    _fig, _axes = plt.subplots(3, 1, figsize=(14, 16))
 
-    This section provides tools to visualize the pixel-level states used in COTe scoring:
-    - **Coverage**: Pixels in GT covered by a correctly-assigned prediction
-    - **Overlap**: Pixels in GT covered by multiple predictions (all correctly assigned)
-    - **Trespass**: Pixels in GT covered by a prediction assigned to a different GT
-    - **Overlap+Trespass**: Pixels with multiple predictions, at least one trespassing
-    - **Excess**: Pixels outside GT but covered by predictions
-    """
-    )
-    return
+    for _ax, _boxes, _title, _colour in [
+        (_axes[0], gt_boxes,   "SSU",  'tab:blue'),
+        (_axes[1], line_boxes, "line", 'tab:orange'),
+        (_axes[2], word_boxes, "word", 'tab:green'),
+    ]:
+        _ax.imshow(image, cmap='gray')
+        for _b in _boxes:
+            _ax.add_patch(patches.Rectangle(
+                (_b['x'], _b['y']), _b['width'], _b['height'],
+                linewidth=1.2, edgecolor=_colour, facecolor='none',
+            ))
+        _ax.set_title(f"{_title} level — {len(_boxes)} regions")
+        _ax.axis('off')
 
-
-@app.cell
-def _(
-    boxes_to_gt_ssu_map,
-    boxes_to_pred_masks,
-    compute_cote_masks,
-    figure_path,
-    gt_boxes,
-    image_array,
-    plt,
-    pred_boxes,
-    visualize_cote_states,
-):
-    # Rasterize GT boxes to an SSU id map and pred boxes to binary masks
-    _h, _w = image_array.shape[:2]
-    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, _w, _h, _w, _h)
-    _pred_masks = boxes_to_pred_masks(pred_boxes, _w, _h, _w, _h)
-
-    # Compute COTe pixel-state masks
-    cote_masks = compute_cote_masks(_gt_ssu_map, _pred_masks)
-
-    # Visualize
-    fig, ax = plt.subplots(figsize=(12, 5.2), dpi=300)
-    patches = visualize_cote_states(image_array, cote_masks, ax)
-    fig.legend(handles=patches, loc="lower center", ncol=max(len(patches), 1), framealpha=0.9)
-    fig.savefig(figure_path / "example_cote_components", bbox_inches="tight", pad_inches=0)
+    plt.tight_layout()
+    save_figure(_fig, "granularity_levels")
     plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Pragmatic Error and Pragmatic Competence: How F1 and COTe respond to granularity mismatches
+
+    IoU based prediction metrics such as the F1 match predictions to ground truth on a one-to-one basis using an IoU
+    threshold. If the prediction and ground truth have significantly different levels of granularity, then the IoU becomes small, and the score collapses, even if the overall prediction is very high. This failure of the evaluation metric to understand the model/data relationship is a ‘**Pragmatic failure**’.
+
+    In contrast, the COTe score has a many-to-one relationship: many predictions can map to a single SSU. This makes the COTe score substantially more robust to granularity differences,, giving it higher ‘**Pragmatic competence**’, or ability to interpret the model/data relationship, than its IoU-based counterparts.
+
+    Below, the line-level ground truth is used as the prediction for the SSU-level ground truth, and vice versa. This means that both variants should get perfect scores.
+    However, the mean IoU and the F1 score are very bad for both. In contrast, the COTe scores perfectly when lines are used as GT, and scores very highly when lines are used as predictions. This difference is because the line predictions miss empty whitespace created by SSU that creates boxes based on the maximum extent of the characters they contain.
+    Despite this drop in performance, the COTe score gives a substantially more granularity robust result than the F1.
+    """)
     return
 
 
@@ -429,48 +274,126 @@ def _(
     boxes_to_pred_masks,
     cote_score,
     f1,
-    ground_truth,
     gt_boxes,
+    image,
+    line_boxes,
     mean_iou,
-    mo,
+):
+    _H, _W = image.shape[:2]
+
+    def _score(gt, preds, label):
+    # PRint out the F1 mean IoU and and COTe score given prediction and Ground Truth masks. 
+        _map = boxes_to_gt_ssu_map(gt, _W, _H, _W, _H)
+        _masks = boxes_to_pred_masks(preds, _W, _H, _W, _H)
+        _cote, _C, _O, _T, _E = cote_score(_map, _masks)
+        print(f"  {label}")
+        print(f"    F1@0.5   {f1(preds, gt):.4f}     mIoU {mean_iou(preds, gt):.4f}")
+        print(f"    COTe     {_cote:.4f}     coverage {_C:.4f}  overlap {_O:.4f}  "
+              f"trespass {_T:.4f}  excess {_E:.4f}")
+
+    _score(gt_boxes, line_boxes, "GT = SSU, predictions = lines")
+    print()
+    _score(line_boxes, gt_boxes, "GT = lines, predictions = SSUs")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Predicting with COTe
+
+    Using the example predictions loaded at the beggining of the notebook we overlay them on top of the SSU ground truth and visualise the resulting pixel classifications
+    """)
+    return
+
+
+@app.cell
+def _(
+    compute_cote_masks,
+    gt_ssu_map,
+    image,
+    plt,
+    pred_masks,
+    save_figure,
+    visualize_cote_states,
+):
+    cote_masks = compute_cote_masks(gt_ssu_map, pred_masks)
+
+    _fig, _ax = plt.subplots(figsize=(14, 6))
+    _ax.imshow(image, cmap='gray')
+    _patches = visualize_cote_states(image, cote_masks, ax=_ax)
+    _ax.legend(handles=_patches, loc='lower center', fontsize=9, ncol = 6)
+    _ax.set_title("COTe pixel states")
+    _ax.axis('off')
+    save_figure(_fig, "cote_pixel_states")
+    plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Quantifying the results
+
+    Whilst the visualisation provides clear insight into the prediction, the quantification below helps us understand what the prediction means.
+
+    By decomposing the overall COTe score of 0.67 into its constituent parts, we can start seeing where the model's strengths and weaknesses lie. In this case, although coverage is high at 0.91, there is significant Overlap (0.12) and Trespass (0.12). This way, we are able to start thinking about whether the errors produced at the Document Layout Analysis stage will have a negative impact downstream for the task we are trying to perform.
+    """)
+    return
+
+
+@app.cell
+def _(
+    boxes_to_gt_ssu_map,
+    boxes_to_pred_masks,
+    cote_score,
+    f1,
+    gt_boxes,
+    image,
+    mean_iou,
     pred_boxes,
 ):
+    IMG_H, IMG_W = image.shape[:2]
 
-    img_wx = int(ground_truth["page"]["width"])
-    img_hx = int(ground_truth["page"]["height"])
+    gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, IMG_W, IMG_H, IMG_W, IMG_H)
+    pred_masks = boxes_to_pred_masks(pred_boxes, IMG_W, IMG_H, IMG_W, IMG_H)
 
-    mIoU = mean_iou(pred_boxes, gt_boxes)
-    f1_score = f1(pred_boxes, gt_boxes)
+    cote, coverage, overlap, trespass, excess = cote_score(gt_ssu_map, pred_masks)
 
-    # Convert to SSU map and pred masks (required by new cote_score API)
-    _gt_ssu_map = boxes_to_gt_ssu_map(gt_boxes, img_wx, img_hx, img_wx, img_hx)
-    _pred_masks = boxes_to_pred_masks(pred_boxes, img_wx, img_hx, img_wx, img_hx)
+    print(f"  COTe       {cote:.4f}")
+    print(f"    coverage {coverage:.4f}   of the ground truth was found")
+    print(f"    overlap  {overlap:.4f}   was claimed by more than one prediction")
+    print(f"    trespass {trespass:.4f}   was attributed to the wrong unit")
+    print(f"    excess   {excess:.4f}   of the background was claimed")
+    print()
+    print(f"  F1@0.5     {f1(pred_boxes, gt_boxes):.4f}")
+    print(f"  mIoU       {mean_iou(pred_boxes, gt_boxes):.4f}")
+    return gt_ssu_map, pred_masks
 
-    # Compute COTe score (C - O - T)
-    cote, C, O, T, E = cote_score(_gt_ssu_map, _pred_masks)
 
-    def _fb(val, perfect):
-        """Bold val if it matches the perfect target."""
-        s = f"{val:.2f}"
-        target = f"{perfect:.2f}"
-        return f"\\textbf{{{s}}}" if s == target else s
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Character positions
 
-    cote_example_latex_table = (
-        "\\begin{table}[h]\n"
-        "\\caption{Performance metrics across different figures, bold indicates perfect score}\n"
-        "\\label{tab:cote_example}\n"
-        "\\begin{tabular}{lcccccccc}\n"
-        "\\toprule\n"
-        " & COTe & Coverage & Overlap & Trespass & Excess & Mean IoU & F1 (IoU$\\geq$0.5) \\\\\n"
-        "\\midrule\n"
-        f"Perfect & 1.00 & 1.00 & 0.00 & 0.00 & 0.00 & 1.00 & 1.00 \\\\\n"
-        f"Fig 2 & {_fb(cote, 1)} & {_fb(C, 1)} & {_fb(O, 0)} & {_fb(T, 0)} & {_fb(E, 0)} & {_fb(mIoU, 1)} & {_fb(f1_score, 1)} \\\\\n"
-        "\\bottomrule\n"
-        "\\end{tabular}\n"
-        "\\end{table}"
-    )
+    The table also carries every character's position, which is what the spatial OCR
+    decompositions consume. `chars_to_region_chars(chars)` returns the
+    `RegionChars` that `cdd_decomp_spatial` expects, so text-level error can be
+    attributed to the same regions the layout score was computed over.
+    """)
+    return
 
-    mo.md(f"### LaTeX Table Output\n```\n{cote_example_latex_table}\n```")
+
+@app.cell
+def _(chars):
+    from cotescore import chars_to_region_chars
+
+    region_chars = chars_to_region_chars(chars)
+
+    print(f"  {len(region_chars.tokens)} characters")
+    print(f"  regions: {sorted(set(region_chars.region_ids.tolist()))}")
+    print(f"  x range: {region_chars.xs.min()}–{region_chars.xs.max()}")
+    print(f"  y range: {region_chars.ys.min()}–{region_chars.ys.max()}")
     return
 
 

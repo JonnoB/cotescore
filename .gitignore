@@ -78,3 +78,6 @@ logs/
 # Environment variables
 .env
 .env.local
+
+#Allow for assets folder to be tracked
+!src/cotescore/assets/**

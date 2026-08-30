@@ -40,7 +40,14 @@ from .visualisation import (
     visualize_class_masks,
     visualize_cote_states,
 )
-from .dataset import load_limerick_example, extract_ssu_boxes
+from .dataset import (
+    load_limerick_example,
+    extract_ssu_boxes,
+    extract_line_boxes,
+    extract_word_boxes,
+    chars_to_region_chars,
+    reconstruct_text,
+)
 from .alto_ssu_tagger import ALTOSSUTagger, assign_alto_ssu
 
 __all__ = [
@@ -85,6 +92,10 @@ __all__ = [
     "MIXED_KEY",
     "load_limerick_example",
     "extract_ssu_boxes",
+    "extract_line_boxes",
+    "extract_word_boxes",
+    "chars_to_region_chars",
+    "reconstruct_text",
     "ALTOSSUTagger",
     "assign_alto_ssu",
 ]
