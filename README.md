@@ -142,6 +142,28 @@ pip install marimo
 marimo edit notebooks/limerick_analysis.py
 ```
 
+### End-to-end walkthrough on a real dataset
+
+Two notebooks evaluate a complete two-stage document pipeline — layout parsing, then OCR — on
+the NCSE newspaper test set. Run them in order; the first writes the predictions the second
+reads.
+
+1. [`notebooks/ncse_cote_tutorial.py`](notebooks/ncse_cote_tutorial.py) — scores two layout
+   models (DocLayout-YOLO and Docling Heron) with COTe, compares it against F1 and mean IoU,
+   and writes a folder of COTe pixel-state diagnostics per model.
+2. [`notebooks/ncse_cev_tutorial.py`](notebooks/ncse_cev_tutorial.py) — runs EasyOCR and
+   Tesseract over both models' regions and scores them with the CEV (SpACER and CDD), then uses
+   COTe together with `d_ocr / d_total` to attribute each page's error to parsing or to OCR.
+
+Both notebooks take the images folder and the ground-truth CSV as plain string paths at the top,
+so they can be pointed at your own dataset. The layout models need a GPU and the
+`doclayout-yolo`, `easyocr` and `pytesseract` packages (plus the `tesseract` binary).
+
+```bash
+marimo edit notebooks/ncse_cote_tutorial.py
+marimo edit notebooks/ncse_cev_tutorial.py
+```
+
 ## Questions and Bug Reports
 
 If you have questions, find a bug, or want to request a feature, please [open an issue](https://github.com/JonnoB/cot_analysis/issues) on GitHub.
